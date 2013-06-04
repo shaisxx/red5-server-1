@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,8 +32,6 @@ import org.apache.mina.filter.codec.ProtocolCodecFactory;
 import org.apache.mina.filter.codec.ProtocolCodecFilter;
 import org.apache.mina.transport.socket.SocketSessionConfig;
 import org.apache.mina.transport.socket.nio.NioSocketConnector;
-import org.red5.server.net.protocol.ProtocolState;
-import org.red5.server.net.rtmp.codec.RTMP;
 import org.red5.server.net.rtmp.message.Header;
 import org.red5.server.net.rtmp.message.Packet;
 import org.slf4j.Logger;
@@ -108,7 +106,6 @@ public class DebugProxyHandler extends IoHandlerAdapter implements ResourceLoade
 
 		if (log.isDebugEnabled()) {
 			log.debug("Is downstream: " + isClient);
-			session.setAttribute(ProtocolState.SESSION_KEY, new RTMP());
 			session.getFilterChain().addFirst("protocol", new ProtocolCodecFilter(codecFactory));
 		}
 

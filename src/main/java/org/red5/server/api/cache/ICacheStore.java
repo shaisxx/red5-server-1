@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ import java.util.Iterator;
  * @see <a href="http://www.onjava.com/pub/a/onjava/2002/10/02/javanio.html?page=3">Top Ten New Things You Can Do with NIO</a>
  * @see <a href="http://csci.csusb.edu/turner/archive/courses/aiit2004/proxy_cache_solution.html">Proxy Cache Solution</a>
  * 
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Paul Gregoire (mondain@gmail.com)
  */
 public interface ICacheStore {

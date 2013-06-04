@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -86,7 +86,7 @@ import org.springframework.jmx.export.annotation.ManagedResource;
  *
  * This type of stream uses two different pipes for live streaming and recording.
  * 
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Steven Gong
  * @author Paul Gregoire (mondain@gmail.com)
  * @author Vladimir Hmelyoff (vlhm@splitmedialabs.com)
@@ -170,7 +170,7 @@ public class ClientBroadcastStream extends AbstractClientStream implements IClie
 	/**
 	 * Recording listener
 	 */
-	private WeakReference<RecordingListener> recordingListener;
+	private WeakReference<IRecordingListener> recordingListener;
 
 	protected long latestTimeStamp = -1;
 
@@ -192,7 +192,7 @@ public class ClientBroadcastStream extends AbstractClientStream implements IClie
 	 * Closes stream, unsubscribes provides, sends stoppage notifications and broadcast close notification.
 	 */
 	public void close() {
-		log.info("Stream close");
+		log.info("Received stream close for stream {}", publishedName);
 		if (closed) {
 			// already closed
 			return;
@@ -268,11 +268,14 @@ public class ClientBroadcastStream extends AbstractClientStream implements IClie
 					if (rtmpEvent instanceof AudioData) {
 						IAudioStreamCodec audioStreamCodec = null;
 						if (checkAudioCodec) {
-							audioStreamCodec = AudioCodecFactory.getAudioCodec(buf);
-							if (info != null) {
-								info.setAudioCodec(audioStreamCodec);
+							// dont try to read codec info from 0 length audio packets
+							if (buf.limit() > 0) {
+    							audioStreamCodec = AudioCodecFactory.getAudioCodec(buf);
+    							if (info != null) {
+    								info.setAudioCodec(audioStreamCodec);
+    							}
+    							checkAudioCodec = false;
 							}
-							checkAudioCodec = false;
 						} else if (codecInfo != null) {
 							audioStreamCodec = codecInfo.getAudioCodec();
 						}
@@ -611,8 +614,11 @@ public class ClientBroadcastStream extends AbstractClientStream implements IClie
 		}
 		// one recording listener at a time via this entry point
 		if (recordingListener == null) {
+			// XXX Paul: Revisit this section to allow for implementation of custom IRecordingListener
+			//IRecordingListener listener = (IRecordingListener) ScopeUtils.getScopeService(conn.getScope(), IRecordingListener.class, RecordingListener.class, false);
 			// create a recording listener
-			RecordingListener listener = new RecordingListener();
+			IRecordingListener listener = new RecordingListener();
+			log.info("Created: {}", listener);
 			// initialize the listener
 			if (listener.init(conn, name, isAppend)) {
 				// get decoder info if it exists for the stream
@@ -658,7 +664,7 @@ public class ClientBroadcastStream extends AbstractClientStream implements IClie
 					}
 				}
 				// set as primary listener
-				recordingListener = new WeakReference<RecordingListener>(listener);
+				recordingListener = new WeakReference<IRecordingListener>(listener);
 				// add as a listener
 				addStreamListener(listener);
 				// start the listener thread
@@ -667,7 +673,7 @@ public class ClientBroadcastStream extends AbstractClientStream implements IClie
 				log.warn("Recording listener failed to initialize for stream: {}", name);
 			}
 		} else {
-			log.info("Recording listener already exists for stream: {}", name);
+			log.info("Recording listener already exists for stream: {} auto record enabled: {}", name, automaticRecording);
 		}
 	}
 
@@ -823,7 +829,7 @@ public class ClientBroadcastStream extends AbstractClientStream implements IClie
 		sendStartNotifications(Red5.getConnectionLocal());
 		// force recording if set
 		if (automaticRecording) {
-			log.debug("Starting automatic recording of {}", publishedName);
+			log.info("Starting automatic recording of {}", publishedName);
 			try {
 				saveAs(publishedName, false);
 			} catch (Exception e) {
@@ -843,7 +849,7 @@ public class ClientBroadcastStream extends AbstractClientStream implements IClie
 	 * Stops any currently active recording.
 	 */
 	public void stopRecording() {
-		RecordingListener listener = null;
+		IRecordingListener listener = null;
 		if (recordingListener != null && (listener = recordingListener.get()).isRecording()) {
 			sendRecordStopNotify();
 			notifyRecordingStop();

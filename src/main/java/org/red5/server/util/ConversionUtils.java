@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,15 +35,15 @@ import java.util.Set;
 import org.apache.commons.beanutils.BeanMap;
 import org.apache.commons.beanutils.BeanUtils;
 import org.apache.commons.beanutils.ConversionException;
+import org.red5.server.BaseConnection;
 import org.red5.server.api.IConnection;
-import org.red5.server.api.remoting.IRemotingConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Misc utils for conversions
  * 
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Luke Hubbard, Codegent Ltd (luke@codegent.com)
  * @author Paul Gregoire (mondain@gmail.com)
  */
@@ -90,7 +90,6 @@ public class ConversionUtils {
 	 * @param target         Target class
 	 * @return               Converted object
 	 * @throws ConversionException           If object can't be converted
-	 *
 	 */
 	@SuppressWarnings({ "unchecked", "rawtypes" })
 	public static Object convert(Object source, Class<?> target) throws ConversionException {
@@ -106,10 +105,9 @@ public class ConversionUtils {
 			// Don't convert NaN values
 			return source;
 		}
-
-		//log.trace("Source: {} Target: {}", source.getClass(), target);
-		if (IConnection.class.isAssignableFrom(source.getClass()) && (!target.equals(IConnection.class) || !target.equals(IRemotingConnection.class))) {
-			throw new ConversionException("IConnection must match exactly");
+		if (BaseConnection.class.isAssignableFrom(source.getClass()) && !target.equals(IConnection.class)) {
+			log.warn("Conversion failure - source: {} target: {}", source.getClass(), target);
+			throw new ConversionException("Source is not assignable and target is not equal to IConnection");
 		}
 		if (target.isInstance(source)) {
 			return source;
@@ -145,7 +143,6 @@ public class ConversionUtils {
 		if (target.equals(Set.class) && source instanceof List) {
 			return new HashSet((List) source);
 		}
-		//Trac #352
 		if (source instanceof Map) {
 			return convertMapToBean((Map) source, target);
 		}

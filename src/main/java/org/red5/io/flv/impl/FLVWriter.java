@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,7 +46,7 @@ import org.slf4j.LoggerFactory;
 /**
  * A Writer is used to write the contents of a FLV file
  *
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Dominick Accattato (daccattato@gmail.com)
  * @author Luke Hubbard, Codegent Ltd (luke@codegent.com)
  * @author Tiago Jacobs (tiago@imdt.com.br)
@@ -590,7 +590,7 @@ public class FLVWriter implements ITagWriter {
 				log.error("", e);
 			}
 			lock.release();
-			log.debug("{}.flv closed", filePath);
+			log.debug("{} closed", filePath);
 		}
 	}
 

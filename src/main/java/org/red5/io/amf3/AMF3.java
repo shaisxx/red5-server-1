@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,11 +22,10 @@ package org.red5.io.amf3;
  * AMF3 data type definitions.
  *
  * For detailed specification please see the link below.
- *
- * @see <a href="http://osflash.org/amf3/index">AMF3 specification (external)</a>
+ * @see <a href="http://en.wikipedia.org/wiki/Action_Message_Format">Action Message Format</a>
  * @see <a href="http://download.macromedia.com/pub/labs/amf/amf3_spec_121207.pdf">Official Adobe AMF3 Specification</a>
  * 
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Luke Hubbard, Codegent Ltd (luke@codegent.com)
  * @author Joachim Bauch (jojo@struktur.de)
  * @author Paul Gregoire (mondain@gmail.com)
@@ -74,7 +73,7 @@ public class AMF3 {
     public static final byte TYPE_INTEGER = 0x04;
 
     /**
-     * Number marker
+     * Number / Double marker
      */
     public static final byte TYPE_NUMBER = 0x05;
 
@@ -141,6 +140,11 @@ public class AMF3 {
      * Vector<Object> marker
      */
     public static final byte TYPE_VECTOR_OBJECT = 0x10;
+    
+    /**
+     * Dictionary
+     */
+    public static final byte TYPE_DICTIONARY = 0x11;    
     
     /**
 	 * Property list encoding.

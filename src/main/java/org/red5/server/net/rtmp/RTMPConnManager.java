@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,37 +18,45 @@
 
 package org.red5.server.net.rtmp;
 
+import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import javax.management.JMX;
+import javax.management.ObjectName;
+
 import org.red5.server.api.scheduling.ISchedulingService;
+import org.red5.server.jmx.mxbeans.RTMPMinaTransportMXBean;
 import org.red5.server.net.IConnectionManager;
 import org.red5.server.net.rtmpt.RTMPTConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 
 /**
  * Responsible for management and creation of RTMP based connections.
  * 
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  */
-public class RTMPConnManager implements IConnectionManager<RTMPConnection>, ApplicationContextAware {
+public class RTMPConnManager implements IConnectionManager<RTMPConnection>, ApplicationContextAware, DisposableBean {
 
 	private static final Logger log = LoggerFactory.getLogger(RTMPConnManager.class);
 
 	private ConcurrentMap<Integer, RTMPConnection> connMap = new ConcurrentHashMap<Integer, RTMPConnection>();
 
 	private static ApplicationContext applicationContext;
-	
+
+	private boolean debug;
+
 	public static RTMPConnManager getInstance() {
 		return applicationContext.getBean(RTMPConnManager.class);
 	}
-	
+
 	/**
 	 * Creates a connection of the type specified.
 	 * 
@@ -69,7 +77,7 @@ public class RTMPConnManager implements IConnectionManager<RTMPConnection>, Appl
 		}
 		return conn;
 	}
-	
+
 	/**
 	 * Adds a connection.
 	 * 
@@ -85,8 +93,20 @@ public class RTMPConnManager implements IConnectionManager<RTMPConnection>, Appl
 		log.debug("Connection id: {} session id hash: {}", conn.getId(), conn.getSessionId().hashCode());
 		// add to local map
 		connMap.put(id, conn);
+		if (debug) {
+			log.info("Connection count: {}", connMap.size());
+			try {
+				RTMPMinaTransportMXBean proxy = JMX.newMXBeanProxy(ManagementFactory.getPlatformMBeanServer(), new ObjectName("org.red5.server:type=RTMPMinaTransport"),
+						RTMPMinaTransportMXBean.class, true);
+				if (proxy != null) {
+					log.info("{}", proxy.getStatistics());
+				}
+			} catch (Exception e) {
+				log.warn("Error on jmx lookup", e);
+			}
+		}
 	}
-	
+
 	/**
 	 * Returns a connection for a given client id.
 	 * 
@@ -115,8 +135,8 @@ public class RTMPConnManager implements IConnectionManager<RTMPConnection>, Appl
 			}
 		}
 		return null;
-	}	
-	
+	}
+
 	/**
 	 * Removes a connection by the given clientId.
 	 * 
@@ -159,8 +179,18 @@ public class RTMPConnManager implements IConnectionManager<RTMPConnection>, Appl
 		return conn;
 	}
 
+	/**
+	 * @param debug the debug to set
+	 */
+	public void setDebug(boolean debug) {
+		this.debug = debug;
+	}
+
 	public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
 		RTMPConnManager.applicationContext = applicationContext;
 	}
-	
+
+	public void destroy() throws Exception {
+	}
+
 }

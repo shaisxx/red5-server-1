@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -65,7 +65,9 @@ public class ScopeUtils {
 		}
 		log.trace("Current: {}", current);
 		String[] parts = path.split(SLASH);
-		log.trace("Parts: {}", Arrays.toString(parts));
+		if (log.isTraceEnabled()) {
+			log.trace("Parts: {}", Arrays.toString(parts));
+		}
 		for (String part : parts) {
 			log.trace("Part: {}", part);
 			if (part.equals(".")) {
@@ -213,26 +215,26 @@ public class ScopeUtils {
 	 * @return				Service object
 	 */
 	protected static Object getScopeService(IScope scope, String name, Class<?> defaultClass) {
-		if (scope == null) {
-			return null;
-		}
-		final IContext context = scope.getContext();
-		ApplicationContext appCtx = context.getApplicationContext();
-		Object result;
-		if (!appCtx.containsBean(name)) {
-			if (defaultClass == null) {
-				return null;
+		if (scope != null) {
+			final IContext context = scope.getContext();
+			ApplicationContext appCtx = context.getApplicationContext();
+			Object result;
+			if (!appCtx.containsBean(name)) {
+				if (defaultClass == null) {
+					return null;
+				}
+				try {
+					result = defaultClass.newInstance();
+				} catch (Exception e) {
+					log.error("{}", e);
+					return null;
+				}
+			} else {
+				result = appCtx.getBean(name);
 			}
-			try {
-				result = defaultClass.newInstance();
-			} catch (Exception e) {
-				log.error("{}", e);
-				return null;
-			}
-		} else {
-			result = appCtx.getBean(name);
+			return result;
 		}
-		return result;
+		return null;
 	}
 
 	/**

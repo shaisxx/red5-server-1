@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -166,9 +166,13 @@ public class RTMPProtocolDecoder implements Constants, IEventDecoder {
 				case RTMP.STATE_HANDSHAKE:
 					return decodeHandshake(rtmp, in);
 				case RTMP.STATE_ERROR:
-					// attempt to correct error
+				case RTMP.STATE_DISCONNECTING:
+				case RTMP.STATE_DISCONNECTED:
+					// throw away any remaining input data:
+					in.position(in.limit());
+					return null;
 				default:
-					throw new IllegalStateException("Invalid RTMP state: " + rtmpState + ", nothing to decode");
+					throw new IllegalStateException("Invalid RTMP state: " + rtmpState);
 			}
 		} catch (ProtocolException pe) {
 			// raise to caller unmodified
@@ -190,9 +194,9 @@ public class RTMPProtocolDecoder implements Constants, IEventDecoder {
 		// number of byte remaining in the buffer
 		int remaining = in.remaining();
 		switch (rtmp.getState()) {
-			// first step: client has connected and handshaking is not complete
+		// first step: client has connected and handshaking is not complete
 			case RTMP.STATE_CONNECT:
-				log.debug("Connecting");	
+				log.debug("Connecting");
 				if (remaining < HANDSHAKE_SIZE + 1) {
 					log.debug("Handshake init too small, buffering. remaining: {}", remaining);
 					rtmp.bufferDecoding(HANDSHAKE_SIZE + 1);
@@ -203,13 +207,13 @@ public class RTMPProtocolDecoder implements Constants, IEventDecoder {
 					hs.flip();
 					rtmp.setState(RTMP.STATE_HANDSHAKE);
 					return hs;
-				}				
+				}
 				break;
 			// second step: all handshake data received, collecting handshake reply data
 			case RTMP.STATE_HANDSHAKE:
 				// TODO Paul: re-examine how remaining data is buffered between handshake reply and next message when using rtmpe
 				// connections sending partial tcp are getting dropped
-				log.debug("Handshake reply");		
+				log.debug("Handshake reply");
 				// how many bytes left to get
 				int required = rtmp.getDecoderBufferAmount();
 				log.trace("Handshake reply - required: {} remaining: {}", required, remaining);
@@ -221,7 +225,7 @@ public class RTMPProtocolDecoder implements Constants, IEventDecoder {
 					rtmp.setState(RTMP.STATE_CONNECTED);
 					rtmp.continueDecoding();
 				}
-				break;				
+				break;
 		}
 		return null;
 	}
@@ -605,7 +609,9 @@ public class RTMPProtocolDecoder implements Constants, IEventDecoder {
 
 	/** {@inheritDoc} */
 	public ChunkSize decodeChunkSize(IoBuffer in) {
-		return new ChunkSize(in.getInt());
+		int chunkSize = in.getInt();
+		log.debug("Decoded chunk size: {}", chunkSize);
+		return new ChunkSize(chunkSize);
 	}
 
 	/** {@inheritDoc} */
@@ -712,7 +718,6 @@ public class RTMPProtocolDecoder implements Constants, IEventDecoder {
 				key = Deserializer.deserialize(input, String.class);
 				// read parameters
 				final List<Object> list = new LinkedList<Object>();
-				// while loop changed for JIRA CODECS-9
 				while (in.position() - start < length) {
 					byte objType = in.get();
 					in.position(in.position() - 1);
@@ -813,7 +818,9 @@ public class RTMPProtocolDecoder implements Constants, IEventDecoder {
 			//TODO replace this with something better as time permits
 			throw new RuntimeException("Action was null");
 		}
-
+		if (log.isTraceEnabled()) {
+			log.trace("Action " + action);
+		}
 		//TODO Handle NetStream.send? Where and how?
 		if (!(notify instanceof Invoke) && rtmp != null && header != null && header.getStreamId() != 0 && !isStreamCommand(action)) {
 			// don't decode "NetStream.send" requests
@@ -941,9 +948,8 @@ public class RTMPProtocolDecoder implements Constants, IEventDecoder {
 	 */
 	@SuppressWarnings("unchecked")
 	public Notify decodeStreamMetadata(IoBuffer in, RTMP rtmp) {
-		Input input;
-		//we will make a pre-emptive copy of the incoming buffer here to
-		//prevent issues that seem to occur fairly often
+		Input input = null;
+		//make a pre-emptive copy of the incoming buffer here to prevent issues that occur fairly often
 		IoBuffer copy = in.duplicate();
 		if (rtmp.getEncoding() == Encoding.AMF0) {
 			input = new org.red5.io.amf.Input(copy);
@@ -965,8 +971,7 @@ public class RTMPProtocolDecoder implements Constants, IEventDecoder {
 				log.debug("Dataframe params type: {}", object);
 				Map<Object, Object> params;
 				if (object == DataTypes.CORE_MAP) {
-					// The params are sent as a Mixed-Array.  This is needed
-					// to support the RTMP publish provided by ffmpeg/xuggler
+					// The params are sent as a Mixed-Array. Required to support the RTMP publish provided by ffmpeg/xuggler
 					params = (Map<Object, Object>) input.readMap(null);
 				} else {
 					// Read the params as a standard object

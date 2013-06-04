@@ -42,9 +42,10 @@ import org.red5.server.api.scope.IScope;
  * IClient client = r5.getClient();
  * </pre>
  *   
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Luke Hubbard (luke@codegent.com)
  * @author Paul Gregoire (mondain@gmail.com)    
+ * @author Tiago Daniel Jacobs (os@tdj.cc)  
  */
 public final class Red5 {
 
@@ -64,7 +65,7 @@ public final class Red5 {
 	/**
 	 * Current server version with revision
 	 */
-	public static final String VERSION = "Red5 Server 1.0.2 $Rev: 4587 $";
+	public static final String VERSION = "Red5 Server 1.0.2 $Rev: 4645 $";
 
 	/**
 	 * Current server version for fmsVer requests 

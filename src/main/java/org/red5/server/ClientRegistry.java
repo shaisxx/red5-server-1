@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,13 +38,13 @@ import org.red5.server.jmx.mxbeans.ClientRegistryMXBean;
 import org.springframework.jmx.export.annotation.ManagedResource;
 
 /**
- * Registry for clients. Associates client with it's id so it's possible to get client by id
- * from whenever we need.
+ * Registry for clients, wherein clients are mapped by their id.
  *
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  */
 @ManagedResource(objectName="org.red5.server:type=ClientRegistry,name=default", description="ClientRegistry")
 public class ClientRegistry implements IClientRegistry, ClientRegistryMXBean {
+	
 	/**
 	 * Clients map
 	 */

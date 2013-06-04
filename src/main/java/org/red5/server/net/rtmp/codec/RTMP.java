@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -79,11 +79,6 @@ public class RTMP extends ProtocolState {
 	public static final byte STATE_EDGE_DISCONNECTING = 0x13;
 
 	/**
-	 * Default chunk size. Packets are read and written chunk-by-chunk.
-	 */
-	public static final int DEFAULT_CHUNK_SIZE = 128;
-
-	/**
 	 * RTMP state.
 	 */
 	private volatile byte state = STATE_CONNECT;
@@ -101,12 +96,12 @@ public class RTMP extends ProtocolState {
 	/**
 	 * Read chunk size. Packets are read and written chunk-by-chunk.
 	 */
-	private int readChunkSize = DEFAULT_CHUNK_SIZE;
+	private int readChunkSize = 128;
 
 	/**
 	 * Write chunk size. Packets are read and written chunk-by-chunk.
 	 */
-	private int writeChunkSize = DEFAULT_CHUNK_SIZE;
+	private int writeChunkSize = 128;
 
 	/**
 	 * Encoding type for objects.

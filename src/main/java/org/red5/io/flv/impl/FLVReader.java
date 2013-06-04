@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -51,7 +51,7 @@ import org.slf4j.LoggerFactory;
  * NOTE: This class is not implemented as threading-safe. The caller
  * should make sure the threading-safety.
  *
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Dominick Accattato (daccattato@gmail.com)
  * @author Luke Hubbard, Codegent Ltd (luke@codegent.com)
  * @author Paul Gregoire, (mondain@gmail.com)
@@ -816,17 +816,37 @@ public class FLVReader implements IoConstants, ITagReader, IKeyFrameDataAnalyzer
 		int previousTagSize = in.getInt();
 		// start of the flv tag
 		byte dataType = in.get();
-		// loop counter
-		int i = 0;
-		while (dataType != 8 && dataType != 9 && dataType != 18) {
-			log.debug("Invalid data type detected, reading ahead");
-			log.debug("Current position: {} limit: {}", in.position(), in.limit());
-			// only allow 10 loops
-			if (i++ > 10) {
-				return null;
-			}
-			// move ahead and see if we get a valid datatype		
-			dataType = in.get();
+		if (log.isTraceEnabled()) {
+			log.trace("Bits: {}", Integer.toBinaryString(dataType));
+		}
+		dataType = (byte) (dataType & 31);
+		byte filter = (byte) ((dataType & 63) >> 5);
+		byte reserved = (byte) ((dataType & 127) >> 6);
+		log.debug("Reserved: {}, Filter: {}, Datatype: {}", reserved, filter, dataType);
+		switch (dataType) {
+			case 8: // audio
+				log.debug("Found audio");
+				break;
+			case 9: // video
+				log.debug("Found video");
+				break;
+			case 15: // special fms undocumented type?
+			case 18: // meta / script data
+				log.debug("Found meta/script data");			
+				break;
+			default:
+				log.debug("Invalid data type detected ({}), reading ahead", dataType);
+				log.debug("Current position: {} limit: {}", in.position(), in.limit());
+				// loop a few times to see if we find a usable data type
+				int i = 0;
+				while (dataType != 8 && dataType != 9 && dataType != 18) {
+					// only allow 10 loops
+					if (i++ > 10) {
+						return null;
+					}
+					// move ahead and see if we get a valid datatype		
+					dataType = in.get();
+				}
 		}
 		//		byte aacType = 0;
 		//		if (dataType == 8 && keyframeMeta.audioCodecId == AudioCodec.AAC.getId()) {

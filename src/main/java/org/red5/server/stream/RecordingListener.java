@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.mina.core.buffer.IoBuffer;
 import org.red5.io.IKeyFrameMetaCache;
@@ -32,7 +33,6 @@ import org.red5.server.api.scope.IScope;
 import org.red5.server.api.stream.IBroadcastStream;
 import org.red5.server.api.stream.IStreamFilenameGenerator;
 import org.red5.server.api.stream.IStreamFilenameGenerator.GenerationType;
-import org.red5.server.api.stream.IStreamListener;
 import org.red5.server.api.stream.IStreamPacket;
 import org.red5.server.net.rtmp.event.Aggregate;
 import org.red5.server.net.rtmp.event.AudioData;
@@ -54,7 +54,7 @@ import org.springframework.core.io.Resource;
  * 
  * @author Paul Gregoire (mondain@gmail.com)
  */
-public class RecordingListener implements IStreamListener {
+public class RecordingListener implements IRecordingListener {
 
 	private static final Logger log = LoggerFactory.getLogger(RecordingListener.class);
 
@@ -62,16 +62,16 @@ public class RecordingListener implements IStreamListener {
 	 * Scheduler
 	 */
 	private QuartzSchedulingService scheduler;
-	
+
 	/**
 	 * Event queue worker job name
 	 */
 	private String eventQueueJobName;
-	
+
 	/**
 	 * Whether we are recording or not
 	 */
-	private boolean recording;
+	private AtomicBoolean recording = new AtomicBoolean(false);
 
 	/**
 	 * Whether we are appending or not
@@ -92,18 +92,47 @@ public class RecordingListener implements IStreamListener {
 	 * Queue to hold incoming stream event packets.
 	 */
 	private final BlockingQueue<CachedEvent> queue = new LinkedBlockingQueue<CachedEvent>();
-	
+
 	/**
-	 * Initialize the listener.
+	 * Get the file we'd be recording to based on scope and given name.
 	 * 
-	 * @param conn Stream source connection
-	 * @param name Stream name
-	 * @param isAppend Append mode
-	 * @return true if initialization completes and false otherwise
+	 * @param scope
+	 * @param name
+	 * @return file
 	 */
+	public static File getRecordFile(IScope scope, String name) {
+		// get stream filename generator
+		IStreamFilenameGenerator generator = (IStreamFilenameGenerator) ScopeUtils.getScopeService(scope, IStreamFilenameGenerator.class, DefaultStreamFilenameGenerator.class);
+		// generate filename
+		String fileName = generator.generateFilename(scope, name, ".flv", GenerationType.RECORD);
+		File file = null;
+		if (generator.resolvesToAbsolutePath()) {
+			file = new File(fileName);
+		} else {
+			Resource resource = scope.getContext().getResource(fileName);
+			if (resource.exists()) {
+				try {
+					file = resource.getFile();
+					log.debug("File exists: {} writable: {}", file.exists(), file.canWrite());
+				} catch (IOException ioe) {
+					log.error("File error: {}", ioe);
+				}
+			} else {
+				String appScopeName = ScopeUtils.findApplication(scope).getName();
+				file = new File(String.format("%s/webapps/%s/%s", System.getProperty("red5.root"), appScopeName, fileName));
+			}
+		}
+		return file;
+	}
+
+	/** {@inheritDoc} */
 	public boolean init(IConnection conn, String name, boolean isAppend) {
 		// get connections scope
-		IScope scope = conn.getScope();
+		return init(conn.getScope(), name, isAppend);
+	}
+
+	/** {@inheritDoc} */
+	public boolean init(IScope scope, String name, boolean isAppend) {
 		// get the file for our filename
 		File file = getRecordFile(scope, name);
 		if (file != null) {
@@ -173,11 +202,11 @@ public class RecordingListener implements IStreamListener {
 				recordingConsumer.setMode("record");
 			}
 			// set the filename
-			setFileName(file.getName());			
+			setFileName(file.getName());
 			// get the scheduler
-			scheduler = (QuartzSchedulingService) scope.getParent().getContext().getBean(QuartzSchedulingService.BEAN_NAME);			
+			scheduler = (QuartzSchedulingService) scope.getParent().getContext().getBean(QuartzSchedulingService.BEAN_NAME);
 			// set recording true
-			recording = true;
+			recording.set(true);
 			// since init finished, return true as well
 			return true;
 		}
@@ -185,70 +214,53 @@ public class RecordingListener implements IStreamListener {
 		return false;
 	}
 
+	/** {@inheritDoc} */
 	public void start() {
 		// start the worker
 		eventQueueJobName = scheduler.addScheduledJob(1000, new EventQueueJob());
 	}
 
+	/** {@inheritDoc} */
+	public void stop() {
+		// set the record flag to false
+		if (recording.compareAndSet(true, false)) {
+			// remove the scheduled job
+			scheduler.removeScheduledJob(eventQueueJobName);
+			if (queue.isEmpty()) {
+				log.debug("Event queue was empty on stop");
+			} else {
+				log.debug("Event queue was not empty on stop, processing...");
+				do {
+					processQueue();
+				} while (!queue.isEmpty());
+			}
+			recordingConsumer.uninit();
+		} else {
+			log.debug("Recording listener was already stopped");
+		}
+	}
+
+	/** {@inheritDoc} */
 	public void packetReceived(IBroadcastStream stream, IStreamPacket packet) {
-		// store everything we would need to perform a write of the stream data
-		CachedEvent event = new CachedEvent();
-		event.setData(packet.getData().duplicate());
-		event.setDataType(packet.getDataType());
-		event.setReceivedTime(System.currentTimeMillis());
-		event.setTimestamp(packet.getTimestamp());
-		// queue the event
-		if (!queue.add(event)) {
-			log.debug("Event packet not added to recording queue");
+		if (recording.get()) {
+			// store everything we would need to perform a write of the stream data
+			CachedEvent event = new CachedEvent();
+			event.setData(packet.getData().duplicate());
+			event.setDataType(packet.getDataType());
+			event.setReceivedTime(System.currentTimeMillis());
+			event.setTimestamp(packet.getTimestamp());
+			// queue the event
+			if (!queue.add(event)) {
+				log.debug("Event packet not added to recording queue");
+			}
+		} else {
+			log.info("A packet was received by recording listener, but it's not recording anymore. {}", stream.getPublishedName());
 		}
 	}
 
 	/**
-	 * Get the file we'd be recording to based on scope and given name.
-	 * 
-	 * @param scope
-	 * @param name
-	 * @return file
+	 * Process the queued items.
 	 */
-	public static File getRecordFile(IScope scope, String name) {
-		// get stream filename generator
-		IStreamFilenameGenerator generator = (IStreamFilenameGenerator) ScopeUtils.getScopeService(scope, IStreamFilenameGenerator.class, DefaultStreamFilenameGenerator.class);
-		// generate filename
-		String fileName = generator.generateFilename(scope, name, ".flv", GenerationType.RECORD);
-		File file = null;
-		if (generator.resolvesToAbsolutePath()) {
-			file = new File(fileName);
-		} else {
-			Resource resource = scope.getContext().getResource(fileName);
-			if (resource.exists()) {
-				try {
-					file = resource.getFile();
-					log.debug("File exists: {} writable: {}", file.exists(), file.canWrite());
-				} catch (IOException ioe) {
-					log.error("File error: {}", ioe);
-				}
-			} else {
-				String appScopeName = ScopeUtils.findApplication(scope).getName();
-				file = new File(String.format("%s/webapps/%s/%s", System.getProperty("red5.root"), appScopeName, fileName));
-			}
-		}
-		return file;
-	}
-
-	public void stop() {
-		// remove the scheduled job
-		scheduler.removeScheduledJob(eventQueueJobName);
-		if (queue.isEmpty()) {
-			log.debug("Event queue was empty on stop");
-		} else {
-			log.debug("Event queue was not empty on stop, processing...");
-			do {
-				processQueue();
-			} while (!queue.isEmpty());
-		}
-		recordingConsumer.uninit();
-	}
-	
 	private void processQueue() {
 		CachedEvent cachedEvent;
 		try {
@@ -301,49 +313,37 @@ public class RecordingListener implements IStreamListener {
 			}
 		} catch (InterruptedException e) {
 			log.warn("Taking from queue interrupted", e);
-		} catch (IOException e) {
+		} catch (Exception e) {
 			log.warn("Exception while pushing to consumer", e);
-		}				
+		}
 	}
 
-	/**
-	 * @return the recording
-	 */
+	/** {@inheritDoc} */
 	public boolean isRecording() {
-		return recording;
+		return recording.get();
 	}
 
-	/**
-	 * @return the appending
-	 */
+	/** {@inheritDoc} */
 	public boolean isAppending() {
 		return appending;
 	}
 
-	/**
-	 * @return the recordingConsumer
-	 */
+	/** {@inheritDoc} */
 	public FileConsumer getFileConsumer() {
 		return recordingConsumer;
 	}
 
-	/**
-	 * @param recordingConsumer the recordingConsumer to set
-	 */
+	/** {@inheritDoc} */
 	public void setFileConsumer(FileConsumer recordingConsumer) {
 		this.recordingConsumer = recordingConsumer;
 	}
 
-	/**
-	 * @return the fileName
-	 */
+	/** {@inheritDoc} */
 	public String getFileName() {
 		return fileName;
 	}
 
-	/**
-	 * @param fileName the fileName to set
-	 */
+	/** {@inheritDoc} */
 	public void setFileName(String fileName) {
 		log.debug("File name: {}", fileName);
 		this.fileName = fileName;
@@ -351,10 +351,30 @@ public class RecordingListener implements IStreamListener {
 
 	private class EventQueueJob implements IScheduledJob {
 
+		private AtomicBoolean processing = new AtomicBoolean(false);
+
 		public void execute(ISchedulingService service) {
-			if (!queue.isEmpty()) {
-				log.debug("Event queue size: {}", queue.size());
-				processQueue();
+			if (processing.compareAndSet(false, true)) {
+				try {
+					if (!queue.isEmpty()) {
+						if (log.isDebugEnabled()) {
+							log.debug("Event queue size: {}", queue.size());
+						}
+
+						while (!queue.isEmpty()) {
+							if (log.isTraceEnabled()) {
+								log.trace("Taking one more item from queue, size: {}", queue.size());
+							}
+							processQueue();
+						}
+					} else {
+						log.trace("Nothing to record.");
+					}
+				} catch (Exception e) {
+					log.error("Error processing queue: " + e.getMessage(), e);
+				} finally {
+					processing.set(false);
+				}
 			}
 		}
 

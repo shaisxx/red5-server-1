@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@
 
 package org.red5.compatibility.flex.messaging.messages;
 
+import java.util.UUID;
+
 import org.red5.io.amf3.ByteArray;
 import org.red5.io.amf3.IDataInput;
 import org.red5.io.utils.RandomGUID;
@@ -27,10 +29,10 @@ import org.slf4j.LoggerFactory;
 /**
  * Command message as sent by the <code>mx:RemoteObject</code> tag.
  * 
- * @see <a href="http://osflash.org/documentation/amf3">osflash documentation (external)</a>
- * @see <a href="http://livedocs.adobe.com/flex/2/langref/mx/rpc/remoting/mxml/RemoteObject.html">Adobe Livedocs (external)</a>
+ * @see <a href="http://en.wikipedia.org/wiki/Action_Message_Format">Action Message Format</a>
+ * @see <a href="http://flex.apache.org/asdoc/mx/messaging/messages/CommandMessage.html">Apache Flex</a>
  *
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Joachim Bauch (jojo@struktur.de)
  * @author Paul Gregoire (mondain@gmail.com) 
  */
@@ -46,7 +48,7 @@ public class CommandMessage extends AsyncMessage {
 	public int operation = Constants.UNKNOWN_OPERATION;
 
 	public CommandMessage() {
-		this.messageId = new RandomGUID().toString();
+		this.messageId = UUID.randomUUID().toString();
 		this.timestamp = System.currentTimeMillis();
 	}
 	

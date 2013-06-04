@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ public class RTMPTCodecFactory extends RTMPCodecFactory {
 	/**
 	 * RTMP encoder
 	 */
-	private RTMPTProtocolEncoder encoder;
+	private ThreadLocal<RTMPTProtocolEncoder> encoder;
 
 	private long baseTolerance = 5000;
 
@@ -45,10 +45,16 @@ public class RTMPTCodecFactory extends RTMPCodecFactory {
 	 * Initialization
 	 */
 	public void init() {
+		// decoder is ok for sharing between rtmpt connections
 		decoder = new RTMPTProtocolDecoder();
-		encoder = new RTMPTProtocolEncoder();
-		encoder.setBaseTolerance(baseTolerance);
-		encoder.setDropLiveFuture(dropLiveFuture);
+		encoder = new ThreadLocal<RTMPTProtocolEncoder>() {
+			protected RTMPTProtocolEncoder initialValue() {
+				RTMPTProtocolEncoder enc = new RTMPTProtocolEncoder();
+				enc.setBaseTolerance(baseTolerance);
+				enc.setDropLiveFuture(dropLiveFuture);
+				return enc;
+			}
+		};
 	}
 
 	/**
@@ -74,7 +80,7 @@ public class RTMPTCodecFactory extends RTMPCodecFactory {
 	/** {@inheritDoc} */
 	@Override
 	public RTMPProtocolEncoder getRTMPEncoder() {
-		return encoder;
+		return encoder.get();
 	}
 
 }
