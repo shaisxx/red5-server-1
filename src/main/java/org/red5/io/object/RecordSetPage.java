@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,11 +23,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Result of pageable request, one page of data.
+ * Result of paged data request, one page of data.
  *
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Joachim Bauch (jojo@struktur.de)
- * @see <a href="http://www.osflash.org/amf/recordset">osflash.org documentation</a>
  */
 public class RecordSetPage {
 	/**

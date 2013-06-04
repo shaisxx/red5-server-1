@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,7 +41,7 @@ import org.springframework.core.io.support.ResourcePatternResolver;
  * 
  * The following are all names for scopes: application, room, place, lobby.
  * 
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Luke Hubbard (luke@codegent.com)
  */
 public interface IScope extends IBasicScope, ResourcePatternResolver, IServiceHandlerProvider {

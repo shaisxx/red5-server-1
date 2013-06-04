@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -198,6 +198,48 @@ public class TestConnection extends BaseConnection implements IServiceCapableCon
 		
 	}
 
+	/* (non-Javadoc)
+	 * @see java.lang.Object#hashCode()
+	 */
+	@Override
+	public int hashCode() {
+		final int prime = 31;
+		int result = 1;
+		if (path != null) {
+			result = prime * result + path.hashCode();
+		}
+		if (sessionId != null) {
+			result = prime * result + sessionId.hashCode();
+		}
+		if (client != null) {
+			result = prime * result + client.hashCode();
+		}
+		return result;
+	}
+
+	/* (non-Javadoc)
+	 * @see java.lang.Object#equals(java.lang.Object)
+	 */
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (obj == null) {
+			return false;
+		}
+		if (path != null && !path.equals(((TestConnection) obj).getPath())) {
+			return false;
+		}
+		if (sessionId != null && !sessionId.equals(((TestConnection) obj).getSessionId())) {
+			return false;
+		}
+		if (client != null && ((TestConnection) obj).getClient() != null && !client.getId().equals(((TestConnection) obj).getClient().getId())) {
+			return false;
+		}
+		return true;
+	}	
+	
 	/* (non-Javadoc)
 	 * @see java.lang.Object#toString()
 	 */

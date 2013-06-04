@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -62,7 +62,7 @@ import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 /**
  * Consumer that pushes messages to file. Used when recording live streams.
  * 
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Paul Gregoire (mondain@gmail.com)
  * @author Vladimir Hmelyoff (vlhm@splitmedialabs.com)
  */
@@ -223,7 +223,7 @@ public class FileConsumer implements Constants, IPushableConsumer, IPipeConnecti
 					}
 				}
 			}
-			//initialize a writer
+			// initialize a writer
 			if (writer == null) {
 				init();
 			}
@@ -308,12 +308,16 @@ public class FileConsumer implements Constants, IPushableConsumer, IPipeConnecti
 		try {
 			// sort the queue
 			log.trace("Queue length: {}", queue.size());
-			QueuedData data;
-			do {
-				data = queue.remove();
-				slice.add(data);
-			} while (!queue.isEmpty() && data.getTimestamp() <= timestamp);
-			log.trace("Queue length (after removal): {}", queue.size());
+			
+			if(!queue.isEmpty()) {
+    			QueuedData data;
+    			
+    			do {
+    				data = queue.remove();
+    				slice.add(data);
+    			} while (!queue.isEmpty() && data.getTimestamp() <= timestamp);
+    			log.trace("Queue length (after removal): {}", queue.size());
+			}
 		} finally {
 			writeLock.unlock();
 		}
@@ -391,44 +395,49 @@ public class FileConsumer implements Constants, IPushableConsumer, IPipeConnecti
 	 */
 	private void init() throws IOException {
 		log.debug("Init");
-		// if we plan to use a queue, create one
-		if (delayWrite) {
-			queue = new PriorityQueue<QueuedData>(queueThreshold <= 0 ? 11 : queueThreshold);
-			// add associated locks
-			reentrantLock = new ReentrantReadWriteLock();
-			writeLock = reentrantLock.writeLock();
-			readLock = reentrantLock.readLock();
-		}
-		IStreamableFileFactory factory = (IStreamableFileFactory) ScopeUtils.getScopeService(scope, IStreamableFileFactory.class, StreamableFileFactory.class);
-		File folder = file.getParentFile();
-		if (!folder.exists()) {
-			if (!folder.mkdirs()) {
-				throw new IOException("Could not create parent folder");
+		// if the "file" is null, the consumer has been uninitialized
+		if (file != null) {
+			// if we plan to use a queue, create one
+			if (delayWrite) {
+				queue = new PriorityQueue<QueuedData>(queueThreshold <= 0 ? 11 : queueThreshold);
+				// add associated locks
+				reentrantLock = new ReentrantReadWriteLock();
+				writeLock = reentrantLock.writeLock();
+				readLock = reentrantLock.readLock();
 			}
-		}
-		if (!file.isFile()) {
-			// Maybe the (previously existing) file has been deleted
-			file.createNewFile();
-		} else if (!file.canWrite()) {
-			throw new IOException("The file is read-only");
-		}
-		IStreamableFileService service = factory.getService(file);
-		IStreamableFile flv = service.getStreamableFile(file);
-		if (mode == null || mode.equals(IClientStream.MODE_RECORD)) {
-			writer = flv.getWriter();
-			//write the decoder config tag if it exists
-			if (videoConfigurationTag != null) {
-				writer.writeTag(videoConfigurationTag);
-				videoConfigurationTag = null;
+			IStreamableFileFactory factory = (IStreamableFileFactory) ScopeUtils.getScopeService(scope, IStreamableFileFactory.class, StreamableFileFactory.class);
+			File folder = file.getParentFile();
+			if (!folder.exists()) {
+				if (!folder.mkdirs()) {
+					throw new IOException("Could not create parent folder");
+				}
 			}
-			if (audioConfigurationTag != null) {
-				writer.writeTag(audioConfigurationTag);
-				audioConfigurationTag = null;
+			if (!file.isFile()) {
+				// Maybe the (previously existing) file has been deleted
+				file.createNewFile();
+			} else if (!file.canWrite()) {
+				throw new IOException("The file is read-only");
 			}
-		} else if (mode.equals(IClientStream.MODE_APPEND)) {
-			writer = flv.getAppendWriter();
+			IStreamableFileService service = factory.getService(file);
+			IStreamableFile flv = service.getStreamableFile(file);
+			if (mode == null || mode.equals(IClientStream.MODE_RECORD)) {
+				writer = flv.getWriter();
+				//write the decoder config tag if it exists
+				if (videoConfigurationTag != null) {
+					writer.writeTag(videoConfigurationTag);
+					videoConfigurationTag = null;
+				}
+				if (audioConfigurationTag != null) {
+					writer.writeTag(audioConfigurationTag);
+					audioConfigurationTag = null;
+				}
+			} else if (mode.equals(IClientStream.MODE_APPEND)) {
+				writer = flv.getAppendWriter();
+			} else {
+				throw new IllegalStateException(String.format("Illegal mode type: %s", mode));
+			}
 		} else {
-			throw new IllegalStateException("Illegal mode type: " + mode);
+			log.warn("Consumer is uninitialized");
 		}
 	}
 
@@ -656,6 +665,15 @@ public class FileConsumer implements Constants, IPushableConsumer, IPipeConnecti
 	 */
 	public void setFile(File file) {
 		this.file = file;
+	}
+
+	/**
+	 * Returns the file.
+	 * 
+	 * @return file
+	 */
+	public File getFile() {
+		return file;
 	}
 
 	/**

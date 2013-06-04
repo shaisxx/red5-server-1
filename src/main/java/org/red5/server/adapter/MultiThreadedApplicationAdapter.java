@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
 
 import org.red5.io.IStreamableFile;
 import org.red5.io.IStreamableFileFactory;
@@ -38,6 +39,7 @@ import org.red5.logging.Red5LoggerFactory;
 import org.red5.server.api.IClient;
 import org.red5.server.api.IConnection;
 import org.red5.server.api.Red5;
+import org.red5.server.api.event.IEvent;
 import org.red5.server.api.plugin.IRed5Plugin;
 import org.red5.server.api.plugin.IRed5PluginHandler;
 import org.red5.server.api.scheduling.IScheduledJob;
@@ -120,7 +122,7 @@ import org.slf4j.Logger;
  * </p>
  * </p>
  * 
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Joachim Bauch (jojo@struktur.de)
  * @author Paul Gregoire (mondain@gmail.com)
  * @author Michael Klishin
@@ -136,7 +138,7 @@ public class MultiThreadedApplicationAdapter extends StatefulScopeWrappingAdapte
 	/**
 	 * List of application listeners.
 	 */
-	private Set<IApplication> listeners = new HashSet<IApplication>();
+	private CopyOnWriteArraySet<IApplication> listeners = new CopyOnWriteArraySet<IApplication>();
 
 	/**
 	 * Scheduling service. Uses Quartz. Adds and removes scheduled jobs.
@@ -175,12 +177,9 @@ public class MultiThreadedApplicationAdapter extends StatefulScopeWrappingAdapte
 	private Set<ISharedObjectSecurity> sharedObjectSecurity = new HashSet<ISharedObjectSecurity>();
 
 	/**
-	 * Register listener that will get notified about application events. Please
-	 * note that return values (e.g. from {@link IApplication#appStart(IScope)})
-	 * will be ignored for listeners.
+	 * Register a listener that will get notified about application events.
 	 * 
-	 * @param listener
-	 *            object to register
+	 * @param listener object to register
 	 */
 	public void addListener(IApplication listener) {
 		listeners.add(listener);
@@ -190,8 +189,7 @@ public class MultiThreadedApplicationAdapter extends StatefulScopeWrappingAdapte
 	 * Unregister handler that will not get notified about application events
 	 * any longer.
 	 * 
-	 * @param listener
-	 *            object to unregister
+	 * @param listener object to unregister
 	 */
 	public void removeListener(IApplication listener) {
 		listeners.remove(listener);
@@ -310,7 +308,7 @@ public class MultiThreadedApplicationAdapter extends StatefulScopeWrappingAdapte
 		boolean success = false;
 		// hit the super class first
 		if (super.connect(conn, scope, params)) {
-			if (log.isInfoEnabled()) {
+			if (log.isInfoEnabled() && ScopeUtils.isApp(scope)) {
 				// log w3c connect event
 				IClient client = conn.getClient();
 				if (client == null) {
@@ -432,7 +430,7 @@ public class MultiThreadedApplicationAdapter extends StatefulScopeWrappingAdapte
 	@Override
 	public void disconnect(IConnection conn, IScope scope) {
 		log.debug("disconnect: {} < {}", conn, scope);
-		if (log.isInfoEnabled()) {
+		if (log.isInfoEnabled() && ScopeUtils.isApp(scope)) {
 			// log w3c connect event
 			IClient client = conn.getClient();
 			if (client == null) {
@@ -462,13 +460,14 @@ public class MultiThreadedApplicationAdapter extends StatefulScopeWrappingAdapte
 	 */
 	@Override
 	public void stop(IScope scope) {
-		log.debug("stop: {}", scope);
-		// we dont allow connections after we stop
-		super.setCanConnect(false);
-		// we also dont allow service calls 
-		super.setCanCallService(false);
+		log.debug("stop: {}", scope.getName());
 		// stop the app / room / etc
 		if (ScopeUtils.isApp(scope)) {
+			// we don't allow connections after we stop
+			super.setCanConnect(false);
+			// we also don't allow service calls 
+			super.setCanCallService(false);
+			// stop the app
 			appStop(scope);
 		} else if (ScopeUtils.isRoom(scope)) {
 			roomStop(scope);
@@ -1170,6 +1169,27 @@ public class MultiThreadedApplicationAdapter extends StatefulScopeWrappingAdapte
 	}
 
 	/**
+	 * Start transmission notification from Flash Player 11.1+. This command asks the server to transmit more data because the buffer is running low.
+	 * 
+	 * http://help.adobe.com/en_US/flashmediaserver/devguide/WSd391de4d9c7bd609-569139412a3743e78e-8000.html
+	 * 
+	 * @param bool
+	 * @param num
+	 */
+	public void startTransmit(Boolean bool, int num) {		
+	}
+
+	/**
+	 * Stop transmission notification from Flash Player 11.1+. This command asks the server to suspend transmission until the client sends a 
+	 * startTransmit event because there is enough data in the buffer.
+	 * 
+	 * @param bool
+	 * @param num
+	 */
+	public void stopTransmit() {		
+	}
+	
+	/**
 	 * Notification method that is sent by FME just before publishing starts.
 	 * 
 	 * @param streamName
@@ -1344,6 +1364,12 @@ public class MultiThreadedApplicationAdapter extends StatefulScopeWrappingAdapte
 	public void streamSubscriberStart(ISubscriberStream stream) {
 		// log w3c connect event
 		log.info("W3C x-category:stream x-event:play c-ip:{} x-sname:{}", Red5.getConnectionLocal().getRemoteAddress(), stream.getName());
+	}
+
+	@Override
+	public boolean handleEvent(IEvent event) {
+		log.debug("handleEvent: {}", event);
+		return super.handleEvent(event);
 	}
 
 }

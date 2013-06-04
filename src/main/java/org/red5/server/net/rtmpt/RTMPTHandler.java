@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ package org.red5.server.net.rtmpt;
 
 import org.apache.mina.core.buffer.IoBuffer;
 import org.apache.mina.core.session.IoSession;
-import org.red5.server.net.protocol.ProtocolState;
 import org.red5.server.net.rtmp.InboundHandshake;
 import org.red5.server.net.rtmp.RTMPConnection;
 import org.red5.server.net.rtmp.RTMPHandler;
@@ -33,7 +32,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Handler for RTMPT messages.
  * 
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Joachim Bauch (jojo@struktur.de)
  * @author Paul Gregoire (mondain@gmail.com)
  */
@@ -115,7 +114,7 @@ public class RTMPTHandler extends RTMPHandler {
 		log.debug("messageReceived");
 		if (in instanceof IoBuffer) {
 			RTMPTConnection conn = (RTMPTConnection) session.getAttribute(RTMPConnection.RTMP_CONNECTION_KEY);
-			RTMP state = (RTMP) session.getAttribute(ProtocolState.SESSION_KEY);
+			RTMP state = conn.getState();
 			log.trace("state: {}", state);
 			rawBufferReceived(conn, state, (IoBuffer) in);
 			((IoBuffer) in).free();
@@ -124,5 +123,4 @@ public class RTMPTHandler extends RTMPHandler {
 			super.messageReceived(in, session);
 		}
 	}
-	
 }

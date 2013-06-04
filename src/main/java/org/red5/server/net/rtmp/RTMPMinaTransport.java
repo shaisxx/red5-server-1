@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,10 +35,12 @@ import javax.management.StandardMBean;
 
 import org.apache.mina.core.buffer.IoBuffer;
 import org.apache.mina.core.buffer.SimpleBufferAllocator;
+import org.apache.mina.core.filterchain.DefaultIoFilterChainBuilder;
 import org.apache.mina.core.service.AbstractIoService;
 import org.apache.mina.core.service.IoHandlerAdapter;
 import org.apache.mina.core.service.IoServiceStatistics;
 import org.apache.mina.core.service.SimpleIoProcessorPool;
+import org.apache.mina.filter.logging.LoggingFilter;
 import org.apache.mina.transport.socket.SocketAcceptor;
 import org.apache.mina.transport.socket.SocketSessionConfig;
 import org.apache.mina.transport.socket.nio.NioProcessor;
@@ -68,8 +70,6 @@ public class RTMPMinaTransport implements RTMPMinaTransportMXBean {
 
 	protected IoHandlerAdapter ioHandler;
 
-	protected IoServiceStatistics stats;
-
 	protected int ioThreads = Runtime.getRuntime().availableProcessors() * 2;
 
 	/**
@@ -77,6 +77,10 @@ public class RTMPMinaTransport implements RTMPMinaTransportMXBean {
 	 */
 	protected ObjectName serviceManagerObjectName;
 
+	protected IoServiceStatistics stats;
+
+	protected boolean enableMinaLogFilter;
+	
 	protected boolean enableMinaMonitor;
 
 	protected int minaPollInterval = 1000;
@@ -103,7 +107,7 @@ public class RTMPMinaTransport implements RTMPMinaTransportMXBean {
 	private int initialPoolSize = 0;
 
 	private int maxPoolSize = Runtime.getRuntime().availableProcessors() + 1;
-	
+
 	private int maxProcessorPoolSize = 16;
 
 	private void initIOHandler() {
@@ -134,6 +138,19 @@ public class RTMPMinaTransport implements RTMPMinaTransportMXBean {
 			// our adjusted socket acceptor with tweaked executor and pool
 			acceptor = new NioSocketAcceptor(executor, pool);
 		}
+		// use only for low level debugging
+		if (enableMinaLogFilter) {
+			DefaultIoFilterChainBuilder chain = acceptor.getFilterChain();
+			LoggingFilter logFilter = new LoggingFilter(RTMPMinaTransport.class);
+//			logFilter.setExceptionCaughtLogLevel(LogLevel.TRACE);
+//			logFilter.setMessageReceivedLogLevel(LogLevel.TRACE);
+//			logFilter.setMessageSentLogLevel(LogLevel.TRACE);
+//			logFilter.setSessionClosedLogLevel(LogLevel.TRACE);
+//			logFilter.setSessionCreatedLogLevel(LogLevel.TRACE);
+//			logFilter.setSessionIdleLogLevel(LogLevel.TRACE);
+//			logFilter.setSessionOpenedLogLevel(LogLevel.TRACE);
+			chain.addLast("logger", logFilter);
+		}		
 		// close sessions when the acceptor is stopped
 		acceptor.setCloseOnDeactivation(true);
 		// set acceptor props
@@ -179,25 +196,13 @@ public class RTMPMinaTransport implements RTMPMinaTransportMXBean {
 		}
 		//enable only if user wants it
 		if (enableMinaMonitor) {
-			//add a service manager to allow for more introspection into the workings of mina
+			//add a stats to allow for more introspection into the workings of mina
 			stats = new IoServiceStatistics((AbstractIoService) acceptor);
 			//poll every second
 			stats.setThroughputCalculationInterval(minaPollInterval);
-			//construct a object containing all the host and port combos
-			StringBuilder addressAndPorts = new StringBuilder();
-			for (SocketAddress sa : addresses) {
-				InetSocketAddress isa = ((InetSocketAddress) sa);
-				if (!isa.isUnresolved()) {
-					addressAndPorts.append(isa.getHostName());
-					addressAndPorts.append('|');
-					addressAndPorts.append(isa.getPort());
-					addressAndPorts.append(';');
-				}
-			}
-			addressAndPorts.deleteCharAt(addressAndPorts.length() - 1);
 			MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
 			try {
-				serviceManagerObjectName = new ObjectName("org.red5.server:type=IoServiceManager,addresses=" + addressAndPorts.toString());
+				serviceManagerObjectName = new ObjectName("org.red5.server:type=RTMPMinaTransport");
 				mbs.registerMBean(new StandardMBean(this, RTMPMinaTransportMXBean.class, true), serviceManagerObjectName);
 			} catch (Exception e) {
 				log.warn("Error on jmx registration", e);
@@ -309,6 +314,20 @@ public class RTMPMinaTransport implements RTMPMinaTransportMXBean {
 	}
 
 	/**
+	 * @return the enableMinaLogFilter
+	 */
+	public boolean isEnableMinaLogFilter() {
+		return enableMinaLogFilter;
+	}
+
+	/**
+	 * @param enableMinaLogFilter the enableMinaLogFilter to set
+	 */
+	public void setEnableMinaLogFilter(boolean enableMinaLogFilter) {
+		this.enableMinaLogFilter = enableMinaLogFilter;
+	}
+
+	/**
 	 * @param enableMinaMonitor the enableMinaMonitor to set
 	 */
 	public void setEnableMinaMonitor(boolean enableMinaMonitor) {
@@ -317,6 +336,123 @@ public class RTMPMinaTransport implements RTMPMinaTransportMXBean {
 
 	public void setMinaPollInterval(int minaPollInterval) {
 		this.minaPollInterval = minaPollInterval;
+	}
+
+	/**
+	 * Returns all the bound addresses and ports as string.
+	 * 
+	 * @return addresses
+	 */
+	public String getAddresses() {
+		//construct a object containing all the host and port combos
+		StringBuilder addressAndPorts = new StringBuilder();
+		for (SocketAddress sa : addresses) {
+			InetSocketAddress isa = ((InetSocketAddress) sa);
+			if (!isa.isUnresolved()) {
+				addressAndPorts.append(isa.getHostName());
+				addressAndPorts.append('|');
+				addressAndPorts.append(isa.getPort());
+				addressAndPorts.append(';');
+			}
+		}
+		addressAndPorts.deleteCharAt(addressAndPorts.length() - 1);
+		return addressAndPorts.toString();
+	}
+	
+	/**
+	 * Returns the current statistics as a json formatted string.
+	 * 
+	 * @return json
+	 */
+	public String getStatistics() {
+		StringBuilder json = new StringBuilder("[Statistics{");
+		if (stats != null) {
+			// returns the cumulative number of sessions which were managed (or are being managed) by this service, which means 'currently managed session count + closed session count'
+			json.append("cumulativeManagedSessionCount=");
+			json.append(stats.getCumulativeManagedSessionCount());
+			json.append(',');
+			// returns the maximum number of sessions which were being managed at the same time
+			json.append("largestManagedSessionCount=");
+			json.append(stats.getLargestManagedSessionCount());
+			json.append(',');
+			// returns the maximum of the readBytesThroughput
+			json.append("largestReadBytesThroughput=");
+			json.append(stats.getLargestReadBytesThroughput());
+			json.append(',');
+			// returns the maximum of the readMessagesThroughput
+			json.append("largestReadMessagesThroughput=");
+			json.append(stats.getLargestReadMessagesThroughput());
+			json.append(',');
+			// returns the maximum of the writtenBytesThroughput
+			json.append("largestWrittenBytesThroughput=");
+			json.append(stats.getLargestWrittenBytesThroughput());
+			json.append(',');
+			// returns the maximum of the writtenMessagesThroughput
+			json.append("largestWrittenMessagesThroughput=");
+			json.append(stats.getLargestWrittenMessagesThroughput());
+			json.append(',');
+			// returns the time in millis when I/O occurred lastly
+			json.append("lastIoTime=");
+			json.append(stats.getLastIoTime());
+			json.append(',');
+			// returns the time in millis when read operation occurred lastly
+			json.append("lastReadTime=");
+			json.append(stats.getLastReadTime());
+			json.append(',');
+			// returns the time in millis when write operation occurred lastly
+			json.append("lastWriteTime=");
+			json.append(stats.getLastWriteTime());
+			json.append(',');
+			// returns the number of bytes read by this service
+			json.append("readBytes=");
+			json.append(stats.getReadBytes());
+			json.append(',');
+			// returns the number of read bytes per second
+			json.append("readBytesThroughput=");
+			json.append(stats.getReadBytesThroughput());
+			json.append(',');
+			// returns the number of messages this services has read
+			json.append("readMessages=");
+			json.append(stats.getReadMessages());
+			json.append(',');
+			// returns the number of read messages per second
+			json.append("readMessagesThroughput=");
+			json.append(stats.getReadMessagesThroughput());
+			json.append(',');
+			// returns the count of bytes scheduled for write
+			json.append("scheduledWriteBytes=");
+			json.append(stats.getScheduledWriteBytes());
+			json.append(',');
+			// returns the count of messages scheduled for write
+			json.append("scheduledWriteMessages=");
+			json.append(stats.getScheduledWriteMessages());
+			json.append(',');
+			// returns the interval (seconds) between each throughput calculation
+			json.append("throughputCalculationInterval=");
+			json.append(stats.getThroughputCalculationInterval());
+			json.append(',');
+			// returns the interval (milliseconds) between each throughput calculation
+			json.append("throughputCalculationIntervalInMillis=");
+			json.append(stats.getThroughputCalculationIntervalInMillis());
+			json.append(',');
+			// returns the number of bytes written out by this service
+			json.append("writtenBytes=");
+			json.append(stats.getWrittenBytes());
+			json.append(',');
+			// returns the number of written bytes per second
+			json.append("writtenBytesThroughput=");
+			json.append(stats.getWrittenBytesThroughput());
+			json.append(',');
+			// returns the number of messages this service has written
+			json.append("writtenMessages=");
+			json.append(stats.getWrittenMessages());
+			json.append(',');
+			// returns the number of written messages per second
+			json.append("writtenMessagesThroughput=");
+			json.append(stats.getWrittenMessagesThroughput());
+			json.append("}]");
+		}
+		return json.toString();
 	}
 
 	public String toString() {

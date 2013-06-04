@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -76,10 +76,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * RTMP connection. Stores information about client streams, data transfer
- * channels, pending RPC calls, bandwidth configuration, used encoding
- * (AMF0/AMF3), connection state (is alive, last ping time and ping result) and
- * session.
+ * RTMP connection. Stores information about client streams, data transfer channels, pending RPC calls, bandwidth configuration, 
+ * AMF encoding type (AMF0/AMF3), connection state (is alive, last ping time and ping result) and session.
  */
 public abstract class RTMPConnection extends BaseConnection implements IStreamCapableConnection, IServiceCapableConnection {
 
@@ -124,7 +122,7 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	private ConcurrentMap<Integer, IClientStream> streams = new ConcurrentHashMap<Integer, IClientStream>(1, 0.9f, 1);
 
 	/**
-	 * Reserved stream ids
+	 * Reserved stream ids. Stream id's directly relate to individual NetStream instances.
 	 */
 	private volatile BitSet reservedStreams = new BitSet();
 
@@ -161,9 +159,19 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	private AtomicLong lastPongReceived = new AtomicLong(0);
 
 	/**
+	 * Queue for received message data.
+	 */
+	protected ConcurrentLinkedQueue<Object> receiveQueue = new ConcurrentLinkedQueue<Object>();
+
+	/**
+	 * RTMP events handler
+	 */
+	protected IRTMPHandler handler;
+
+	/**
 	 * Name of quartz job that keeps connection alive.
 	 */
-	private String keepAliveJobName;
+	protected String keepAliveJobName;
 
 	/**
 	 * Ping interval in ms to detect dead clients.
@@ -173,7 +181,7 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	/**
 	 * Maximum time in ms after which a client is disconnected because of inactivity.
 	 */
-	private volatile int maxInactivity = 60000;
+	protected volatile int maxInactivity = 60000;
 
 	/**
 	 * Data read interval
@@ -201,11 +209,6 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	private AtomicInteger usedStreams = new AtomicInteger(0);
 
 	/**
-	 * AMF version, AMF0 by default.
-	 */
-	private volatile Encoding encoding = Encoding.AMF0;
-
-	/**
 	 * Remembered stream buffer durations.
 	 */
 	private ConcurrentMap<Integer, Integer> streamBuffers = new ConcurrentHashMap<Integer, Integer>(1, 0.9f, 1);
@@ -218,7 +221,7 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	/**
 	 * Maximum time in milliseconds to wait for a valid handshake.
 	 */
-	private volatile int maxHandshakeTimeout = 5000;
+	private int maxHandshakeTimeout = 5000;
 
 	/**
 	 * Bandwidth limit type / enforcement. (0=hard,1=soft,2=dynamic)
@@ -228,18 +231,18 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	/**
 	 * Protocol state
 	 */
-	protected volatile RTMP state;
+	protected volatile RTMP state = new RTMP();
 
 	/**
 	 * Scheduling service
 	 */
 	protected ISchedulingService schedulingService;
-	
+
 	/**
 	 * Keep-alive worker flag
 	 */
-	private final AtomicBoolean running;	
-	
+	protected final AtomicBoolean running;
+
 	/**
 	 * Timestamp generator
 	 */
@@ -255,6 +258,7 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		// We start with an anonymous connection without a scope.
 		// These parameters will be set during the call of "connect" later.
 		super(type);
+		// set running flag
 		running = new AtomicBoolean(false);
 	}
 
@@ -268,6 +272,10 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		log.warn("Setting of a client id is deprecated, use IClient to manipulate the id", new Exception("RTMPConnection.setId is deprecated"));
 	}
 
+	public void setHandler(IRTMPHandler handler) {
+		this.handler = handler;
+	}
+
 	public RTMP getState() {
 		return state;
 	}
@@ -278,11 +286,6 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 
 	public void setStateCode(byte code) {
 		state.setState(code);
-	}
-
-	public void setState(RTMP state) {
-		log.debug("Set state: {}", state);
-		this.state = state;
 	}
 
 	/** {@inheritDoc} */
@@ -302,6 +305,13 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		return timer.incrementAndGet();
 	}
 	
+	/**
+	 * Opens the connection.
+	 */
+	public void open() {
+		startWaitForHandshake();
+	}
+
 	@Override
 	public boolean connect(IScope newScope, Object[] params) {
 		log.debug("Connect scope: {}", newScope);
@@ -309,6 +319,8 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 			boolean success = super.connect(newScope, params);
 			if (success) {
 				unscheduleWaitForHandshakeJob();
+			} else {
+				log.debug("Connect failed");
 			}
 			return success;
 		} catch (ClientRejectedException e) {
@@ -319,11 +331,39 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		}
 	}
 
+	/**
+	 * Start waiting for a valid handshake.
+	 */
+	protected void startWaitForHandshake() {
+		log.debug("startWaitForHandshake - {}", sessionId);
+		// start the handshake waiter
+		waitForHandshakeJob = schedulingService.addScheduledOnceJob(maxHandshakeTimeout, new WaitForHandshakeJob());
+	}
+
+	/**
+	 * Starts measurement.
+	 */
+	public void startRoundTripMeasurement() {
+		if (pingInterval > 0 && keepAliveJobName == null) {
+			log.debug("startRoundTripMeasurement - {}", sessionId);
+			try {
+				keepAliveJobName = schedulingService.addScheduledJob(pingInterval, new KeepAliveJob());
+				log.debug("Keep alive job name {} for client id {}", keepAliveJobName, getId());
+			} catch (Exception e) {
+				log.error("Error creating keep alive job", e);
+			}
+		}
+	}
+
 	private void unscheduleWaitForHandshakeJob() {
+		log.debug("unscheduleWaitForHandshakeJob - {}", sessionId);
 		if (waitForHandshakeJob != null) {
 			schedulingService.removeScheduledJob(waitForHandshakeJob);
 			waitForHandshakeJob = null;
 			log.debug("Removed waitForHandshakeJob for: {}", getId());
+			// once the handshake has completed, start needed jobs
+			// start the ping / pong keep-alive
+			startRoundTripMeasurement();
 		}
 	}
 
@@ -340,7 +380,7 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		this.params = params;
 		if (Integer.valueOf(3).equals(params.get("objectEncoding"))) {
 			log.debug("Setting object encoding to AMF3");
-			encoding = Encoding.AMF3;
+			state.setEncoding(Encoding.AMF3);
 		}
 	}
 
@@ -350,7 +390,7 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	 * @return AMF encoding used by connection
 	 */
 	public Encoding getEncoding() {
-		return encoding;
+		return state.getEncoding();
 	}
 
 	/**
@@ -668,6 +708,9 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		} else {
 			log.trace("StreamBuffers collection was null");
 		}
+		if (receiveQueue != null) {
+			receiveQueue.clear();
+		}
 		// clear thread local reference
 		Red5.setConnectionLocal(null);
 	}
@@ -692,8 +735,8 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 			default:
 				log.warn("Unhandled event: {}", event);
 		}
-	}	
-	
+	}
+
 	/**
 	 * When the connection has been closed, notify any remaining pending service calls that they have failed because
 	 * the connection is broken. Implementors of IPendingServiceCallback may only deduce from this notification that
@@ -958,6 +1001,17 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	}
 
 	/**
+	 * Handle the incoming message.
+	 * 
+	 * @param message
+	 */
+	public void handleMessageReceived(Object message) {
+		log.debug("handleMessageReceived - {}", sessionId);
+		// add new message to the queue
+		receiveQueue.add(message);
+	}
+
+	/**
 	 * Mark message as sent.
 	 * 
 	 * @param message
@@ -1008,16 +1062,16 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		Channel channel = getChannel((byte) 3);
 		log.trace("Send to channel: {}", channel);
 		// create a new sync message for every client to avoid concurrent access through multiple threads
-		SharedObjectMessage syncMessage = encoding == Encoding.AMF3 ? new FlexSharedObjectMessage(null, name, currentVersion, persistent) : new SharedObjectMessage(null, name,
-				currentVersion, persistent);
+		SharedObjectMessage syncMessage = state.getEncoding() == Encoding.AMF3 ? new FlexSharedObjectMessage(null, name, currentVersion, persistent) : new SharedObjectMessage(
+				null, name, currentVersion, persistent);
 		syncMessage.addEvents(events);
 		try {
 			channel.write(syncMessage);
 		} catch (Exception e) {
 			log.warn("Exception sending shared object", e);
 		}
-	}	
-	
+	}
+
 	/** {@inheritDoc} */
 	public void ping() {
 		long newPingTime = System.currentTimeMillis();
@@ -1047,15 +1101,13 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 			lastPingTime.set((int) (now & 0xffffffff) - pong.getValue2());
 		}
 		lastPongReceived.set(now);
-		// start keep alive after first pong
-		startRoundTripMeasurement();		
-	}	
-	
+	}
+
 	/** {@inheritDoc} */
 	public int getLastPingTime() {
 		return lastPingTime.get();
 	}
-	
+
 	/**
 	 * Setter for ping interval.
 	 * 
@@ -1077,17 +1129,6 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	}
 
 	/**
-	 * Starts measurement.
-	 */
-	public void startRoundTripMeasurement() {
-		if (pingInterval > 0 && keepAliveJobName == null) {
-			log.debug("startRoundTripMeasurement - {}", sessionId);
-			keepAliveJobName = schedulingService.addScheduledJob(pingInterval, new KeepAliveJob());
-			log.debug("Keep alive job name {} for client id {}", keepAliveJobName, getId());
-		}
-	}
-
-	/**
 	 * Inactive state event handler.
 	 */
 	protected abstract void onInactive();
@@ -1100,7 +1141,7 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	public void setSchedulingService(ISchedulingService schedulingService) {
 		this.schedulingService = schedulingService;
 	}
-	
+
 	/**
 	 * Registers deferred result.
 	 * 
@@ -1133,29 +1174,15 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		this.maxHandshakeTimeout = maxHandshakeTimeout;
 	}
 
-	/**
-	 * Start waiting for a valid handshake.
-	 * 
-	 * @param service
-	 *            The scheduling service to use
-	 */
-	protected void startWaitForHandshake(ISchedulingService service) {
-		waitForHandshakeJob = service.addScheduledOnceJob(maxHandshakeTimeout, new WaitForHandshakeJob());
-	}
-
 	/* (non-Javadoc)
 	 * @see java.lang.Object#hashCode()
 	 */
 	@Override
 	public int hashCode() {
 		final int prime = 31;
-		int result = 1;
-		result = prime * result + getId();
-		if (host != null) {
-			result = result + host.hashCode();
-		}
-		if (remoteAddress != null) {
-			result = result + remoteAddress.hashCode();
+		int result = super.hashCode();
+		if (client != null) {
+			result += prime * client.hashCode();
 		}
 		return result;
 	}
@@ -1174,15 +1201,12 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		if (getClass() != obj.getClass()) {
 			return false;
 		}
+		if (!super.equals(obj)) {
+			return false;
+		}
 		RTMPConnection other = (RTMPConnection) obj;
-		if (getId() != other.getId()) {
-			return false;
-		}
-		if (host != null && !host.equals(other.getHost())) {
-			return false;
-		}
-		if (remoteAddress != null && !remoteAddress.equals(other.getRemoteAddress())) {
-			return false;
+		if (client != null && other.getClient() != null) {
+			return client.equals(other.getClient());
 		}
 		return true;
 	}
@@ -1192,13 +1216,13 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	public String toString() {
 		if (log.isDebugEnabled()) {
 			String id = getClient() != null ? getClient().getId() : null;
-			return String.format("%1$s %2$s:%3$s client: %4$s session: %5$s", new Object[] { getClass().getSimpleName(), getRemoteAddress(), getRemotePort(), id, sessionId});
+			return String.format("%1$s %2$s:%3$s client: %4$s session: %5$s", new Object[] { getClass().getSimpleName(), getRemoteAddress(), getRemotePort(), id, sessionId });
 		} else {
 			Object[] args = new Object[] { getClass().getSimpleName(), getRemoteAddress(), getRemotePort(), getHost(), getReadBytes(), getWrittenBytes() };
 			return String.format("%1$s from %2$s:%3$s to %4$s (in: %5$s out: %6$s)", args);
 		}
-	}	
-	
+	}
+
 	/**
 	 * Quartz job that keeps connection alive and disconnects if client is dead.
 	 */
@@ -1212,49 +1236,55 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		public void execute(ISchedulingService service) {
 			// ensure the job is not already running
 			if (running.compareAndSet(false, true)) {
-				// get now
-				long now = System.currentTimeMillis();
-				// get the current bytes read count on the connection
-				long currentReadBytes = getReadBytes();
-				// get our last bytes read count
-				long previousReadBytes = lastBytesRead.get();
-				log.debug("Time now: {} current read count: {} last read count: {}", new Object[] { now, currentReadBytes, previousReadBytes });
-				if (currentReadBytes > previousReadBytes) {
-					log.debug("Client is still alive, no ping needed");
-					// client has sent data since last check and thus is not dead. No need to ping
-					if (lastBytesRead.compareAndSet(previousReadBytes, currentReadBytes)) {
-						// update the timestamp to match our update
-						lastBytesReadTime = now;
-					}
-				} else if (getPendingMessages() > 0) {
-					// client may not have updated bytes yet, but may have received messages waiting, no need to drop them if processing hasn't
-					// caught up yet
-					log.debug("Reader is not idle, possible flood. Pending write messages: {}", getPendingMessages());
-				} else {
-					// client didn't send response to ping command and didn't sent data for too long, disconnect
-					long lastPingTime = lastPingSent.get();
-					long lastPongTime = lastPongReceived.get();
-					if (lastPongTime > 0 && (lastPingTime - lastPongTime > maxInactivity) && !(now - lastBytesReadTime < maxInactivity)) {
-						log.debug("Keep alive job name {}", keepAliveJobName);
-						if (log.isTraceEnabled()) {
-							log.trace("Scheduled job list");
-							for (String jobName : service.getScheduledJobNames()) {
-								log.trace("Job: {}", jobName);
-							}
+				log.trace("Running keep-alive");
+				try {
+					// get now
+					long now = System.currentTimeMillis();
+					// get the current bytes read count on the connection
+					long currentReadBytes = getReadBytes();
+					// get our last bytes read count
+					long previousReadBytes = lastBytesRead.get();
+					log.debug("Time now: {} current read count: {} last read count: {}", new Object[] { now, currentReadBytes, previousReadBytes });
+					if (currentReadBytes > previousReadBytes) {
+						log.debug("Client is still alive, no ping needed");
+						// client has sent data since last check and thus is not dead. No need to ping
+						if (lastBytesRead.compareAndSet(previousReadBytes, currentReadBytes)) {
+							// update the timestamp to match our update
+							lastBytesReadTime = now;
 						}
-						service.removeScheduledJob(keepAliveJobName);
-						keepAliveJobName = null;
-						log.warn("Closing {}, with id {}, due to too much inactivity ({} ms), last ping sent {} ms ago", new Object[] { RTMPConnection.this, getId(),
-								(lastPingTime - lastPongTime), (now - lastPingTime) });
-						// the following line deals with a very common support request
-						log.warn("This often happens if YOUR Red5 application generated an exception on start-up. Check earlier in the log for that exception first!");
-						onInactive();
+					} else if (getPendingMessages() > 0) {
+						// client may not have updated bytes yet, but may have received messages waiting, no need to drop them if processing hasn't
+						// caught up yet
+						log.debug("Reader is not idle, possible flood. Pending write messages: {}", getPendingMessages());
+					} else {
+						// client didn't send response to ping command and didn't sent data for too long, disconnect
+						long lastPingTime = lastPingSent.get();
+						long lastPongTime = lastPongReceived.get();
+						if (lastPongTime > 0 && (lastPingTime - lastPongTime > maxInactivity) && !(now - lastBytesReadTime < maxInactivity)) {
+							log.debug("Keep alive job name {}", keepAliveJobName);
+							if (log.isTraceEnabled()) {
+								log.trace("Scheduled job list");
+								for (String jobName : service.getScheduledJobNames()) {
+									log.trace("Job: {}", jobName);
+								}
+							}
+							service.removeScheduledJob(keepAliveJobName);
+							keepAliveJobName = null;
+							log.warn("Closing {}, with id {}, due to too much inactivity ({} ms), last ping sent {} ms ago", new Object[] { RTMPConnection.this, getId(),
+									(lastPingTime - lastPongTime), (now - lastPingTime) });
+							// the following line deals with a very common support request
+							log.warn("This often happens if YOUR Red5 application generated an exception on start-up. Check earlier in the log for that exception first!");
+							onInactive();
+						}
+						// send ping command to client to trigger sending of data
+						ping();
 					}
-					// send ping command to client to trigger sending of data
-					ping();
-				}				
-				// reset running flag
-				running.compareAndSet(true, false);
+				} catch (Exception e) {
+					log.error("Error executing keepalive code: " + e.getMessage(), e);
+				} finally {
+					// reset running flag
+					running.compareAndSet(true, false);
+				}
 			}
 		}
 	}
@@ -1268,11 +1298,14 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		/** {@inheritDoc} */
 		public void execute(ISchedulingService service) {
 			waitForHandshakeJob = null;
-			// Client didn't send a valid handshake, disconnect
-			log.warn("Closing {}, with id {} due to long handshake", RTMPConnection.this, getId());
-			onInactive();
+			// check for connected state before disconnecting
+			if (state.getState() != RTMP.STATE_CONNECTED) {
+				// Client didn't send a valid handshake, disconnect
+				log.warn("Closing {}, with id {} due to long handshake", RTMPConnection.this, getId());
+				onInactive();
+			}
 		}
-		
+
 	}
 
 }

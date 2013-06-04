@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,17 +39,11 @@ public class ServerTest {
 
 	protected static Logger log = LoggerFactory.getLogger(ServerTest.class);
 	
-	
 	static {
 		System.setProperty("red5.deployment.type", "junit");
-		System.setProperty("red5.root", "bin");
-		System.setProperty("red5.config_root", "bin/conf");
-	}
-	
-	{
-		log.debug("Property - user.dir: {}", System.getProperty("user.dir"));
-		log.debug("Property - red5.root: {}", System.getProperty("red5.root"));
-		log.debug("Property - red5.config_root: {}", System.getProperty("red5.config_root"));
+		System.setProperty("red5.root", "target/classes");
+		System.setProperty("red5.config_root", "src/main/server/conf");
+		System.setProperty("logback.ContextSelector", "org.red5.logging.LoggingContextSelector");
 	}
 	
 	@Before

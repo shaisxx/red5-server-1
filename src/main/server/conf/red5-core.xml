@@ -20,9 +20,9 @@
 	</bean>
 	
 	<!-- RTMP -->
-        
+	        
     <!-- RTMP connection manager --> 
-    <bean id="rtmpConnManager" class="org.red5.server.net.rtmp.RTMPConnManager" />  	
+    <bean id="rtmpConnManager" class="org.red5.server.net.rtmp.RTMPConnManager" />
     
     <bean id="rtmpCodecFactory" class="org.red5.server.net.rtmp.codec.RTMPMinaCodecFactory"/>
 	    
@@ -75,6 +75,7 @@
 		<!-- This is the interval at which the sessions are polled for stats. If mina monitoring is not enabled, polling will not occur. -->
 		<property name="minaPollInterval" value="${jmx.mina.poll.interval}" />
 		<property name="enableMinaMonitor" value="${jmx.mina.monitor.enable}" />
+        <property name="enableMinaLogFilter" value="${mina.logfilter.enable}" />
 	</bean>
 	
 	<!-- RTMP Mina Connection -->
@@ -134,6 +135,7 @@
 <!--    
     <bean id="rtmpsMinaIoHandler" class="org.red5.server.net.rtmps.RTMPSMinaIoHandler">
         <property name="handler" ref="rtmpHandler" />
+        <property name="codecFactory" ref="rtmpCodecFactory" />
         <property name="rtmpConnManager" ref="rtmpConnManager" />
         <property name="keyStorePassword" value="${rtmps.keystorepass}" />
         <property name="keystoreFile" value="conf/keystore" />

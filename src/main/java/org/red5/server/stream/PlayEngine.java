@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -76,7 +76,7 @@ import org.slf4j.Logger;
 /**
  * A play engine for playing an IPlayItem.
  * 
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Steven Gong
  * @author Paul Gregoire (mondain@gmail.com)
  * @author Dan Rossi
@@ -749,9 +749,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
 					IPlaylistSubscriberStream pss = (IPlaylistSubscriberStream) subscriberStream;
 					if (!pss.hasMoreItems()) {
 						releasePendingMessage();
-						if (pss.getItemSize() > 0) {
-							sendCompleteStatus();
-						}
+						sendCompleteStatus();
 						bytesSent.set(0);
 						sendClearPing();
 						sendStopStatus(currentItem);
@@ -764,10 +762,16 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
 					}
 				}
 				break;
+			case CLOSED:
+				clearWaitJobs();
+				if (deferredStop != null) {
+					subscriberStream.cancelJob(deferredStop);
+					deferredStop = null;
+				}				
 			default:
 				throw new IllegalStateException(String.format("Cannot stop in current state: %s", subscriberStream.getState()));
 		}
-		// once we've stopped theres no need for the deffered job
+		// once we've stopped there's no need for the deferred job
 		if (deferredStop != null) {
 			subscriberStream.cancelJob(deferredStop);
 		}
@@ -1295,7 +1299,9 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
 			case PipeConnectionEvent.PROVIDER_CONNECT_PUSH:
 				if (event.getProvider() != this) {
 					if (waiting) {
-						schedulingService.removeScheduledJob(waitLiveJob);
+						if (waitLiveJob != null) {
+							schedulingService.removeScheduledJob(waitLiveJob);
+						}
 						waitLiveJob = null;
 						waiting = false;
 					}
@@ -1776,7 +1782,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
 											break;
 										}
 									}
-								} else {								
+								} else {
 									// No more packets to send
 									log.debug("Ran out of packets");
 									runDeferredStop();

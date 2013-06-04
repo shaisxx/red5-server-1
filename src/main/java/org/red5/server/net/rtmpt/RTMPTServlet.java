@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,7 +43,7 @@ import org.springframework.web.context.support.WebApplicationContextUtils;
 /**
  * Servlet that handles all RTMPT requests.
  * 
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Joachim Bauch (jojo@struktur.de)
  * @author Paul Gregoire (mondain@gmail.com)
  */
@@ -267,9 +267,10 @@ public class RTMPTServlet extends HttpServlet {
 			conn.setHandler(handler);
 			conn.setDecoder(handler.getCodecFactory().getRTMPDecoder());
 			conn.setEncoder(handler.getCodecFactory().getRTMPEncoder());
-			handler.connectionOpened(conn, conn.getState());
+			handler.connectionOpened(conn);
+			conn.dataReceived();
 			// set thread local reference
-			Red5.setConnectionLocal(conn);			
+			Red5.setConnectionLocal(conn);
 			if (conn.getId() != 0) {
 				// return session id to client
 				returnMessage(conn.getSessionId() + "\n", resp);
@@ -300,7 +301,7 @@ public class RTMPTServlet extends HttpServlet {
 		RTMPTConnection connection = getConnection();
 		if (connection != null) {
 			log.debug("Pending messges on close: {}", connection.getPendingMessages());
-			handler.connectionClosed(connection, connection.getState());
+			handler.connectionClosed(connection);
 			returnMessage((byte) 0, resp);
 			connection.close();
 			connection.realClose();
@@ -333,6 +334,8 @@ public class RTMPTServlet extends HttpServlet {
 			// messages are either of IoBuffer or Packet type
 			// handshaking uses IoBuffer and everything else should be Packet
 			connection.read(messages);
+
+			connection.dataReceived();
 			// return pending messages
 			returnPendingMessages(connection, resp);
 		} else {
@@ -354,6 +357,8 @@ public class RTMPTServlet extends HttpServlet {
 		// get associated connection
 		RTMPTConnection connection = getConnection();
 		if (connection != null) {
+			connection.dataReceived();
+
 			// return pending
 			returnPendingMessages(connection, resp);
 		} else {

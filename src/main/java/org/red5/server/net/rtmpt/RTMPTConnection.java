@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@
 
 package org.red5.server.net.rtmpt;
 
+import java.lang.ref.WeakReference;
 import java.util.LinkedList;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.servlet.http.HttpServletRequest;
 
@@ -30,16 +30,14 @@ import org.red5.logging.Red5LoggerFactory;
 import org.red5.server.api.Red5;
 import org.red5.server.api.scheduling.IScheduledJob;
 import org.red5.server.api.scheduling.ISchedulingService;
-import org.red5.server.net.protocol.ProtocolState;
 import org.red5.server.net.rtmp.RTMPConnection;
-import org.red5.server.net.rtmp.codec.RTMP;
 import org.red5.server.net.servlet.ServletUtils;
 import org.slf4j.Logger;
 
 /**
  * A RTMPT client / session.
  * 
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Joachim Bauch (jojo@struktur.de)
  * @author Paul Gregoire (mondain@gmail.com)
  */
@@ -84,15 +82,18 @@ public class RTMPTConnection extends BaseRTMPTConnection {
 	private String processJobName;
 
 	/**
-	 * Process job run flag
-	 */
-	private final AtomicBoolean running;
+	 * Interval to check if user is still connected (miliseconds)
+	 * */
+	private final Integer connectionCheckInterval = 5000;
 
-	/** Constructs a new RTMPTConnection. */
+	/**
+	 * Timestamp of last data received on the connection
+	 */
+	private long tsLastDataReceived = 0;
+
+	/** Constructs a new RTMPTConnection */
 	RTMPTConnection() {
 		super(POLLING);
-		state = new RTMP();
-		running = new AtomicBoolean(false);
 	}
 
 	/**
@@ -103,7 +104,6 @@ public class RTMPTConnection extends BaseRTMPTConnection {
 	protected IoSession getSession() {
 		IoSession session = new DummySession();
 		session.setAttribute(RTMPConnection.RTMP_CONNECTION_KEY, this);
-		session.setAttribute(ProtocolState.SESSION_KEY, getState());
 		return session;
 	}
 
@@ -129,6 +129,12 @@ public class RTMPTConnection extends BaseRTMPTConnection {
 	@Override
 	protected void onInactive() {
 		log.debug("Inactive connection id: {}, closing", getId());
+		if (servlet != null) {
+			servlet.notifyClosed(this);
+		}
+		if (handler != null) {
+			handler.connectionClosed(this);
+		}
 		close();
 		realClose();
 	}
@@ -148,16 +154,17 @@ public class RTMPTConnection extends BaseRTMPTConnection {
 	public void setRemoteAddress(String remoteAddress) {
 		this.remoteAddress = remoteAddress;
 	}
-	
+
 	public void setRemotePort(int remotePort) {
 		this.remotePort = remotePort;
 	}
-	
+
 	/** {@inheritDoc} */
 	@Override
 	public void setSchedulingService(ISchedulingService schedulingService) {
 		this.schedulingService = schedulingService;
 		processJobName = schedulingService.addScheduledJob(250, new ProcessJob(this));
+		keepAliveJobName = schedulingService.addScheduledJob(connectionCheckInterval, new CheckInactivityJob(new WeakReference<RTMPTConnection>(this)));
 	}
 
 	/**
@@ -222,6 +229,57 @@ public class RTMPTConnection extends BaseRTMPTConnection {
 	}
 
 	/**
+	 * Register timestamp that data was received
+	 * */
+	public void dataReceived() {
+		tsLastDataReceived = System.currentTimeMillis();
+	}
+
+	/**
+	 * Get the timestamp of last data received
+	 * */
+	public Long getLastDataReceived() {
+		return tsLastDataReceived;
+	}
+
+	/**
+	 * Quartz job that keeps connection alive and disconnects if client is dead (RTMPT)
+	 */
+	private class CheckInactivityJob implements IScheduledJob {
+		
+		private final WeakReference<RTMPTConnection> conn;
+
+		public CheckInactivityJob(WeakReference<RTMPTConnection> conn) {
+			this.conn = conn;
+		}
+
+		/** {@inheritDoc} */
+		public void execute(ISchedulingService service) {
+			// ensure the job is not already running
+			if (running.compareAndSet(false, true)) {
+				try {
+					log.debug("RTMPT check inactivity running.");
+					RTMPTConnection connection = conn.get();
+					if (connection != null) {
+						long lastTS = connection.getLastDataReceived();
+						long now = System.currentTimeMillis();
+						long tsDelta = now - lastTS;
+						if (lastTS > 0 && tsDelta > maxInactivity) {
+							log.info("RTMPT client diconnected due to inactivity of {} ms", tsDelta);
+							onInactive();
+						}
+					}
+				} catch (Exception e) {
+					log.error("Error executing keepalive code: " + e.getMessage(), e);
+				} finally {
+					// reset running flag
+					running.compareAndSet(true, false);
+				}
+			}
+		}
+	}
+
+	/**
 	 * Processes queued incoming messages.
 	 */
 	private class ProcessJob implements IScheduledJob {
@@ -237,32 +295,37 @@ public class RTMPTConnection extends BaseRTMPTConnection {
 			if (!pendingInMessages.isEmpty()) {
 				// ensure the job is not already running
 				if (running.compareAndSet(false, true)) {
-					int available = pendingInMessages.size();
-					log.debug("process - available: {}", available);
-					// set connection local
-					Red5.setConnectionLocal(conn);
-					// get the session
-					IoSession session = getSession();
-					// grab some of the incoming data
-					LinkedList<Object> sliceList = new LinkedList<Object>();
-					int sliceSize = pendingInMessages.drainTo(sliceList, Math.min(maxInMessagesPerProcess, available));
-					log.debug("processing: {}", sliceSize);
-					// handle the messages
-					for (Object message : sliceList) {
-						try {
-							handler.messageReceived(message, session);
-						} catch (Exception e) {
-							log.error("Could not process received message", e);
+					try {
+						int available = pendingInMessages.size();
+						log.debug("process - available: {}", available);
+						// set connection local
+						Red5.setConnectionLocal(conn);
+						// get the session
+						IoSession session = getSession();
+						// grab some of the incoming data
+						LinkedList<Object> sliceList = new LinkedList<Object>();
+						int sliceSize = pendingInMessages.drainTo(sliceList, Math.min(maxInMessagesPerProcess, available));
+						log.debug("processing: {}", sliceSize);
+						// handle the messages
+						for (Object message : sliceList) {
+							try {
+								handler.messageReceived(message, session);
+							} catch (Exception e) {
+								log.error("Could not process received message", e);
+							}
+							// exit execution of the parent connection is closing
+							if (isClosing()) {
+								break;
+							}
 						}
-						// exit execution of the parent connection is closing
-						if (isClosing()) {
-							break;
-						}
+						// unset connection local
+						Red5.setConnectionLocal(null);
+					} catch (Exception e) {
+						log.error("Error processing message: " + e.getMessage(), e);
+					} finally {
+						// reset run state
+						running.set(false);
 					}
-					// unset connection local
-					Red5.setConnectionLocal(null);
-					// reset run state
-					running.compareAndSet(true, false);
 				} else {
 					log.trace("Process already running");
 				}

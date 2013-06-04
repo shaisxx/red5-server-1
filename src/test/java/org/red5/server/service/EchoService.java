@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ import org.w3c.dom.Document;
  * The Echo service is used to test all of the different datatypes 
  * and to make sure that they are being returned properly.
  *
- * @author The Red5 Project (red5@osflash.org)
+ * @author The Red5 Project
  * @author Chris Allen (mrchrisallen@gmail.com)
  */
 public class EchoService {

@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,17 +42,7 @@ public class IOUtils {
 	 * @param value       Integer
 	 */
 	public final static void writeReverseInt(IoBuffer out, int value) {
-		byte[] bytes = new byte[4];
-		IoBuffer rev = IoBuffer.allocate(4);
-		rev.putInt(value);
-		rev.flip();
-		bytes[3] = rev.get();
-		bytes[2] = rev.get();
-		bytes[1] = rev.get();
-		bytes[0] = rev.get();
-		out.put(bytes);
-		rev.free();
-		rev = null;
+		out.putInt((int) ((value & 0xFF ) << 24 |((value >> 8) & 0x00FF) << 16 | ((value >>> 16) & 0x000000FF) << 8 | ((value >>> 24) & 0x000000FF)));
 	}
 
 	/**
@@ -168,14 +158,9 @@ public class IOUtils {
 	 * @return         int
 	 */
 	public final static int readReverseInt(IoBuffer in) {
-		byte[] bytes = new byte[4];
-		in.get(bytes);
-		int val = 0;
-		val += bytes[3] * 256 * 256 * 256;
-		val += bytes[2] * 256 * 256;
-		val += bytes[1] * 256;
-		val += bytes[0];
-		return val;
+		int value = in.getInt();
+		value = ((value & 0xFF ) << 24 |((value >> 8) & 0x00FF) << 16 | ((value >>> 16) & 0x000000FF) << 8 | ((value >>> 24) & 0x000000FF));		
+		return value;
 	}
 
 	/**

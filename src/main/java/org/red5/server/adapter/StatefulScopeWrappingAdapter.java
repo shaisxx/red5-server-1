@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,6 +41,8 @@ import org.springframework.core.io.Resource;
  */
 public class StatefulScopeWrappingAdapter extends AbstractScopeAdapter implements IScopeAware, IAttributeStore {
 
+	//private static Logger log = LoggerFactory.getLogger(StatefulScopeWrappingAdapter.class);
+	
 	/**
 	 * Wrapped scope
 	 */
@@ -53,6 +55,7 @@ public class StatefulScopeWrappingAdapter extends AbstractScopeAdapter implement
 
 	/** {@inheritDoc} */
 	public void setScope(IScope scope) {
+		//log.trace("setScope: {}", scope.getName());
 		this.scope = scope;
 	}
 
@@ -62,6 +65,7 @@ public class StatefulScopeWrappingAdapter extends AbstractScopeAdapter implement
 	 * @return  Wrapped scope
 	 */
 	public IScope getScope() {
+		//log.trace("getScope: {}", scope.getName());
 		return scope;
 	}
 

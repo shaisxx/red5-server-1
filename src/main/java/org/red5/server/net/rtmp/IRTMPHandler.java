@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,6 @@
 package org.red5.server.net.rtmp;
 
 import org.apache.mina.core.session.IoSession;
-import org.red5.server.net.rtmp.codec.RTMP;
 
 /**
  * RTMP events handler
@@ -29,9 +28,8 @@ public interface IRTMPHandler {
      * Connection open event
      * 
      * @param conn          Connection
-     * @param state         RTMP state
      */
-	public void connectionOpened(RTMPConnection conn, RTMP state);
+	public void connectionOpened(RTMPConnection conn);
 
     /**
      * Message received
@@ -52,8 +50,7 @@ public interface IRTMPHandler {
     /**
      * Connection closed
      * @param conn          Connection
-     * @param state         RTMP state
      */
-	public void connectionClosed(RTMPConnection conn, RTMP state);
+	public void connectionClosed(RTMPConnection conn);
 	
 }

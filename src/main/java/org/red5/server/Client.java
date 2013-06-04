@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -301,7 +301,10 @@ public class Client extends AttributeStore implements IClient {
 
 	/** {@inheritDoc} */
 	public Map<String, Object> checkBandwidthUp(Object[] params) {
-		log.debug("Check bandwidth: {}", Arrays.toString(params));
+		if(log.isDebugEnabled()){
+			log.debug("Check bandwidth: {}", Arrays.toString(params));
+		}
+		
 		bandwidthChecked = true;
 		//do something to check the bandwidth, Dan what do you think?
 		ClientServerDetection detection = new ClientServerDetection();

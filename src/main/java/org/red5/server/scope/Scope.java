@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -67,11 +67,10 @@ import org.springframework.jmx.export.annotation.ManagedResource;
 /**
  * The scope object.
  * <p>
- * A stateful object shared between a group of clients connected to the same
- * context path. Scopes are arranged in a hierarchical way, so its possible for
- * a scope to have a parent. If a client is connect to a scope then they are
- * also connected to its parent scope. The scope object is used to access
- * resources, shared object, streams, etc.</p>
+ * A stateful object shared between a group of clients connected to the same context path. Scopes are arranged in a hierarchical way,
+ * so a scope always has a parent unless its a "global" scope. If a client is connected to a scope then they are also connected to its
+ * parent scope. The scope object is used to access resources, shared object, streams, etc.</p>
+ * <p>
  * Scope layout:
  * <pre>
  *  /Global scope - Contains application scopes
@@ -80,8 +79,8 @@ import org.springframework.jmx.export.annotation.ManagedResource;
  *              /Shared object scope - Contains shared object
  *              /Broadcast stream scope - Contains a broadcast stream
  * </pre>
- * 
- * @author The Red5 Project (red5@osflash.org)
+ * </p>
+ * @author The Red5 Project
  * @author Paul Gregoire (mondain@gmail.com)
  * @author Nathan Smith (nathgs@gmail.com)
  */
@@ -271,12 +270,15 @@ public class Scope extends BasicScope implements IScope, IScopeStatistics, Scope
 	public boolean connect(IConnection conn, Object[] params) {
 		log.debug("Connect - scope: {} connection: {}", this, conn);
 		if (hasParent() && !parent.connect(conn, params)) {
+			log.debug("Connection to parent failed");
 			return false;
 		}
 		if (hasHandler() && !getHandler().connect(conn, this, params)) {
+			log.debug("Connection to handler failed");
 			return false;
 		}
 		if (!conn.isConnected()) {
+			log.debug("Connection is not connected");
 			// timeout while connecting client
 			return false;
 		}
@@ -357,8 +359,7 @@ public class Scope extends BasicScope implements IScope, IScopeStatistics, Scope
 	 */
 	public void disconnect(IConnection conn) {
 		log.debug("Disconnect: {}", conn);
-		// We call the disconnect handlers in reverse order they were called during connection, 
-		// ie. roomDisconnect is called before appDisconnect.
+		// call disconnect handlers in reverse order of connection. ie. roomDisconnect is called before appDisconnect.
 		final IClient client = conn.getClient();
 		if (client == null) {
 			// early bail out
@@ -636,6 +637,7 @@ public class Scope extends BasicScope implements IScope, IScopeStatistics, Scope
 	 * @return Scope handler (or parent's one)
 	 */
 	public IScopeHandler getHandler() {
+		log.trace("getHandler from {}", name);
 		if (handler != null) {
 			return handler;
 		} else if (hasParent()) {
@@ -991,6 +993,7 @@ public class Scope extends BasicScope implements IScope, IScopeStatistics, Scope
 	 * Removes all the child scopes
 	 */
 	public void removeChildren() {
+		log.trace("removeChildren of {}", name);
 		List<IBasicScope> childScopes = new ArrayList<IBasicScope>();
 		childScopes.addAll(children.keySet());
 		for (IBasicScope child : childScopes) {
@@ -1050,7 +1053,7 @@ public class Scope extends BasicScope implements IScope, IScopeStatistics, Scope
 	 * @param handler Event handler
 	 */
 	public void setHandler(IScopeHandler handler) {
-		log.debug("Set handler: {}", handler);
+		log.debug("setHandler: {} on {}", handler, name);
 		this.handler = handler;
 		if (handler instanceof IScopeAware) {
 			((IScopeAware) handler).setScope(this);
@@ -1141,7 +1144,7 @@ public class Scope extends BasicScope implements IScope, IScopeStatistics, Scope
 	 * Stops scope
 	 */
 	public void stop() {
-		log.debug("Stop scope");
+		log.debug("stop: {}", name);
 		if (enabled && running && handler != null) {
 			try {
 				lock.acquire();
@@ -1319,7 +1322,7 @@ public class Scope extends BasicScope implements IScope, IScopeStatistics, Scope
 			boolean added = false;
 			// check #1
 			if (!keySet().contains(scope)) {
-				log.debug("Adding {} to scope set: {}", scope, this);
+				log.debug("Adding child scope: {} to {}", (((IBasicScope) scope).getName()), this);
 				if (hasHandler()) {
 					// get the handler for the scope to which we are adding this new scope 
 					IScopeHandler hdlr = getHandler();
@@ -1371,7 +1374,7 @@ public class Scope extends BasicScope implements IScope, IScopeStatistics, Scope
 			log.debug("Remove child scope: {}", scope);
 			if (hasHandler()) {
 				IScopeHandler hdlr = getHandler();
-				log.debug("Remove child scope");
+				log.debug("Removing child scope: {}", (((IBasicScope) scope).getName()));
 				hdlr.removeChildScope((IBasicScope) scope);
 				if (scope instanceof Scope) {
 					// cast it
@@ -1444,10 +1447,10 @@ public class Scope extends BasicScope implements IScope, IScopeStatistics, Scope
 		public IBasicScope getBasicScope(ScopeType type, String name) {
 			boolean skipTypeCheck = ScopeType.UNDEFINED.equals(type);
 			if (names.contains(name)) {
-				log.debug("Child scopes (key set): {}", this.keySet());
 				log.trace("Permits at getBasicScope: {} queued: {}", internalLock.availablePermits(), internalLock.hasQueuedThreads());
 				try {
 					internalLock.acquire();
+					log.debug("Child scopes (key set): {}", this.keySet());
 					if (skipTypeCheck) {
 						for (IBasicScope child : keySet()) {
 							if (name.equals(child.getName())) {

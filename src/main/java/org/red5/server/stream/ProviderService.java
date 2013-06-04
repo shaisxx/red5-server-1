@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@
 package org.red5.server.stream;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Set;
 
@@ -189,7 +190,12 @@ public class ProviderService implements IProviderService {
 		try {
 			// most likely case first
 			if (!filenameGenerator.resolvesToAbsolutePath()) {
-				file = scope.getContext().getResource(filename).getFile();
+				try {
+					file = scope.getContext().getResource(filename).getFile();
+				} catch (FileNotFoundException e) {
+					log.debug("File {} not found, nulling it", filename);
+					file = null;
+				}
 			} else {
 				file = new File(filename);
 			}

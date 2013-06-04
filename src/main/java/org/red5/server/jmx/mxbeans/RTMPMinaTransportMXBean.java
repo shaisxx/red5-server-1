@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,6 +31,10 @@ public interface RTMPMinaTransportMXBean {
 
 	public void setUseHeapBuffers(boolean useHeapBuffers);
 
+	public String getAddresses();
+	
+	public String getStatistics();
+	
 	public void start() throws Exception;
 
 	public void stop();

@@ -1,7 +1,7 @@
 /*
  * RED5 Open Source Flash Server - http://code.google.com/p/red5/
  * 
- * Copyright 2006-2012 by respective authors (see below). All rights reserved.
+ * Copyright 2006-2013 by respective authors (see below). All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,8 +36,10 @@ import org.red5.server.api.IConnection;
 import org.red5.server.api.event.IEvent;
 import org.red5.server.api.listeners.IConnectionListener;
 import org.red5.server.api.scope.IBasicScope;
+import org.red5.server.api.scope.IBroadcastScope;
 import org.red5.server.api.scope.IScope;
 import org.red5.server.scope.Scope;
+import org.red5.server.so.SharedObjectScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -211,7 +213,7 @@ public abstract class BaseConnection extends AttributeStore implements IConnecti
 	 * @param client        Client bound to connection
 	 */
 	public void initialize(IClient client) {
-		log.debug("initialize: {}", client);
+		log.debug("initialize - client: {}", client);
 		if (this.client != null && this.client instanceof Client) {
 			// unregister old client
 			((Client) this.client).unregister(this, false);
@@ -286,7 +288,7 @@ public abstract class BaseConnection extends AttributeStore implements IConnecti
 	public Map<String, Object> getConnectParams() {
 		return Collections.unmodifiableMap(params);
 	}
-	
+
 	/** {@inheritDoc} */
 	public void setClient(IClient client) {
 		this.client = client;
@@ -303,6 +305,7 @@ public abstract class BaseConnection extends AttributeStore implements IConnecti
 	 * @return       true if connection is bound to scope, false otherwise
 	 */
 	public boolean isConnected() {
+		log.debug("Connected: {}", (scope != null));
 		return scope != null;
 	}
 
@@ -312,7 +315,7 @@ public abstract class BaseConnection extends AttributeStore implements IConnecti
 	 * @return             true on success, false otherwise
 	 */
 	public boolean connect(IScope newScope) {
-		return connect(newScope, new Object[] {});
+		return connect(newScope, null);
 	}
 
 	/**
@@ -324,21 +327,24 @@ public abstract class BaseConnection extends AttributeStore implements IConnecti
 	public boolean connect(IScope newScope, Object[] params) {
 		if (log.isDebugEnabled()) {
 			log.debug("Connect Params: {}", params);
-			for (Object e : params) {
-				log.debug("Param: {}", e);
+			if (params != null) {
+				for (Object e : params) {
+					log.debug("Param: {}", e);
+				}
 			}
 		}
 		// disconnect from old scope(s), then reconnect to new scopes. 
 		// this is necessary because there may be an intersection between the hierarchies.
-		if (scope != null) {
-			scope.disconnect(this);
-		}
+		//if (scope != null) {
+		//	scope.disconnect(this);
+		//}
 		scope = (Scope) newScope;
 		return scope.connect(this, params);
 	}
 
 	/**
-	 *
+	 * Return the current scope.
+	 * 
 	 * @return scope
 	 */
 	public IScope getScope() {
@@ -356,20 +362,20 @@ public abstract class BaseConnection extends AttributeStore implements IConnecti
 		closed = true;
 		log.debug("Close, disconnect from scope, and children");
 		try {
-			// Unregister all child scopes first
+			// unregister all child scopes first
 			for (IBasicScope basicScope : basicScopes) {
 				unregisterBasicScope(basicScope);
 			}
 		} catch (Exception err) {
-			log.error("Error while unregistering basic scopes.", err);
+			log.error("Error while unregistering basic scopes", err);
 		}
-		// Disconnect
+		// disconnect
 		try {
 			scope.disconnect(this);
 		} catch (Exception err) {
 			log.error("Error while disconnecting from scope: {}. {}", scope, err);
 		}
-		// Unregister client
+		// unregister client
 		if (client != null && client instanceof Client) {
 			((Client) client).unregister(this);
 		}
@@ -419,7 +425,16 @@ public abstract class BaseConnection extends AttributeStore implements IConnecti
 	 * Registers basic scope
 	 * @param basicScope      Basic scope to register
 	 */
-	public void registerBasicScope(IBasicScope basicScope) {
+	public void registerBasicScope(IBroadcastScope basicScope) {
+		basicScopes.add(basicScope);
+		basicScope.addEventListener(this);
+	}
+
+	/**
+	 * Registers basic scope
+	 * @param basicScope      Basic scope to register
+	 */
+	public void registerBasicScope(SharedObjectScope basicScope) {
 		basicScopes.add(basicScope);
 		basicScope.addEventListener(this);
 	}
@@ -430,8 +445,10 @@ public abstract class BaseConnection extends AttributeStore implements IConnecti
 	 * @param basicScope      Unregister basic scope
 	 */
 	public void unregisterBasicScope(IBasicScope basicScope) {
-		basicScopes.remove(basicScope);
-		basicScope.removeEventListener(this);
+		if (basicScope instanceof IBroadcastScope || basicScope instanceof SharedObjectScope) {
+			basicScopes.remove(basicScope);
+			basicScope.removeEventListener(this);
+		}
 	}
 
 	/**
@@ -486,8 +503,8 @@ public abstract class BaseConnection extends AttributeStore implements IConnecti
 	 */
 	public boolean isWriterIdle() {
 		return false;
-	}	
-	
+	}
+
 	/**
 	 * Count of outgoing messages not yet written.
 	 * 
