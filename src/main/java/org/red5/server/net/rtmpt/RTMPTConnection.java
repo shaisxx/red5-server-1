@@ -28,10 +28,11 @@ import org.apache.mina.core.session.DummySession;
 import org.apache.mina.core.session.IoSession;
 import org.red5.logging.Red5LoggerFactory;
 import org.red5.server.api.Red5;
+import org.red5.server.api.scheduling.IScheduledJob;
+import org.red5.server.api.scheduling.ISchedulingService;
 import org.red5.server.net.rtmp.RTMPConnection;
 import org.red5.server.net.servlet.ServletUtils;
 import org.slf4j.Logger;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 /**
  * A RTMPT client / session.
@@ -76,7 +77,12 @@ public class RTMPTConnection extends BaseRTMPTConnection {
 	private RTMPTServlet servlet;
 
 	/**
-	 * Interval to check if user is still connected (milliseconds)
+	 * Process job name
+	 */
+	private String processJobName;
+
+	/**
+	 * Interval to check if user is still connected (miliseconds)
 	 * */
 	private final Integer connectionCheckInterval = 5000;
 
@@ -108,6 +114,8 @@ public class RTMPTConnection extends BaseRTMPTConnection {
 		if (!isClosing()) {
 			close();
 		}
+		// remove the processing job
+		schedulingService.removeScheduledJob(processJobName);
 		// inform super that we need to close
 		super.realClose();
 		// inform the servlet
@@ -153,12 +161,10 @@ public class RTMPTConnection extends BaseRTMPTConnection {
 
 	/** {@inheritDoc} */
 	@Override
-	public void setScheduler(ThreadPoolTaskScheduler scheduler) {
-		super.setScheduler(scheduler);
-		// outgoing queue processor
-		scheduler.scheduleAtFixedRate(new ProcessTask(this), 250);
-		// alive check
-		scheduler.scheduleAtFixedRate(new CheckInactivityTask(new WeakReference<RTMPTConnection>(this)), connectionCheckInterval);
+	public void setSchedulingService(ISchedulingService schedulingService) {
+		this.schedulingService = schedulingService;
+		processJobName = schedulingService.addScheduledJob(250, new ProcessJob(this));
+		keepAliveJobName = schedulingService.addScheduledJob(connectionCheckInterval, new CheckInactivityJob(new WeakReference<RTMPTConnection>(this)));
 	}
 
 	/**
@@ -237,17 +243,18 @@ public class RTMPTConnection extends BaseRTMPTConnection {
 	}
 
 	/**
-	 * Task that keeps connection alive and disconnects if client is dead (RTMPT)
+	 * Quartz job that keeps connection alive and disconnects if client is dead (RTMPT)
 	 */
-	private class CheckInactivityTask implements Runnable {
+	private class CheckInactivityJob implements IScheduledJob {
 		
 		private final WeakReference<RTMPTConnection> conn;
 
-		public CheckInactivityTask(WeakReference<RTMPTConnection> conn) {
+		public CheckInactivityJob(WeakReference<RTMPTConnection> conn) {
 			this.conn = conn;
 		}
 
-		public void run() {
+		/** {@inheritDoc} */
+		public void execute(ISchedulingService service) {
 			// ensure the job is not already running
 			if (running.compareAndSet(false, true)) {
 				try {
@@ -275,15 +282,16 @@ public class RTMPTConnection extends BaseRTMPTConnection {
 	/**
 	 * Processes queued incoming messages.
 	 */
-	private class ProcessTask implements Runnable {
+	private class ProcessJob implements IScheduledJob {
 
 		private final RTMPTConnection conn;
 
-		ProcessTask(RTMPTConnection conn) {
+		ProcessJob(RTMPTConnection conn) {
 			this.conn = conn;
 		}
 
-		public void run() {
+		/** {@inheritDoc} */
+		public void execute(ISchedulingService service) {
 			if (!pendingInMessages.isEmpty()) {
 				// ensure the job is not already running
 				if (running.compareAndSet(false, true)) {

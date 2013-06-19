@@ -27,6 +27,7 @@ import java.util.concurrent.ConcurrentMap;
 import javax.management.JMX;
 import javax.management.ObjectName;
 
+import org.red5.server.api.scheduling.ISchedulingService;
 import org.red5.server.jmx.mxbeans.RTMPMinaTransportMXBean;
 import org.red5.server.net.IConnectionManager;
 import org.red5.server.net.rtmpt.RTMPTConnection;
@@ -36,7 +37,6 @@ import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 /**
  * Responsible for management and creation of RTMP based connections.
@@ -68,10 +68,8 @@ public class RTMPConnManager implements IConnectionManager<RTMPConnection>, Appl
 			try {
 				// create connection
 				conn = createConnectionInstance(connCls);
-				// set the scheduler
-				if (applicationContext.containsBean("rtmpScheduler") && conn.getScheduler() == null) {
-					conn.setScheduler((ThreadPoolTaskScheduler) applicationContext.getBean("rtmpScheduler"));
-				}
+				// set the scheduling service for easy access in the connection
+				conn.setSchedulingService((ISchedulingService) applicationContext.getBean(ISchedulingService.BEAN_NAME));
 				log.trace("Connection created: {}", conn);
 			} catch (Exception ex) {
 				log.warn("Exception creating connection", ex);
