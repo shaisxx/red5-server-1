@@ -32,7 +32,6 @@ import org.red5.server.api.service.IPendingServiceCall;
 import org.red5.server.api.service.IServiceCall;
 import org.red5.server.api.stream.IClientStream;
 import org.red5.server.exception.ClientDetailsException;
-import org.red5.server.net.ICommand;
 import org.red5.server.net.protocol.ProtocolState;
 import org.red5.server.net.rtmp.RTMPConnection;
 import org.red5.server.net.rtmp.RTMPUtils;
@@ -723,12 +722,12 @@ public class RTMPProtocolEncoder implements Constants, IEventEncoder {
 
 	/** {@inheritDoc} */
 	public IoBuffer encodeNotify(Notify notify, RTMP rtmp) {
-		return encodeCommand(notify, rtmp);
+		return encodeNotifyOrInvoke(notify, rtmp);
 	}
 
 	/** {@inheritDoc} */
 	public IoBuffer encodeInvoke(Invoke invoke, RTMP rtmp) {
-		return encodeCommand(invoke, rtmp);
+		return encodeNotifyOrInvoke(invoke, rtmp);
 	}
 
 	/**
@@ -737,23 +736,23 @@ public class RTMPProtocolEncoder implements Constants, IEventEncoder {
 	 * @param invoke            Notification event
 	 * @return                  Encoded event data
 	 */
-	protected IoBuffer encodeCommand(Notify invoke, RTMP rtmp) {
+	protected IoBuffer encodeNotifyOrInvoke(Notify invoke, RTMP rtmp) {
 		IoBuffer out = IoBuffer.allocate(1024);
 		out.setAutoExpand(true);
-		encodeCommand(out, invoke, rtmp);
+		encodeNotifyOrInvoke(out, invoke, rtmp);
 		return out;
 	}
 
 	/**
-	 * Encode command event and fill given byte buffer.
+	 * Encode notification event and fill given byte buffer.
 	 *
-	 * @param out Buffer to fill
-	 * @param command Command event
+	 * @param out               Byte buffer to fill
+	 * @param invoke            Notification event
 	 */
-	protected void encodeCommand(IoBuffer out, ICommand command, RTMP rtmp) {
+	protected void encodeNotifyOrInvoke(IoBuffer out, Notify invoke, RTMP rtmp) {
 		// TODO: tidy up here
 		Output output = new org.red5.io.amf.Output(out);
-		final IServiceCall call = command.getCall();
+		final IServiceCall call = invoke.getCall();
 		final boolean isPending = (call.getStatus() == Call.STATUS_PENDING);
 		log.debug("Call: {} pending: {}", call, isPending);
 		if (!isPending) {
@@ -764,10 +763,11 @@ public class RTMPProtocolEncoder implements Constants, IEventEncoder {
 			final String action = (call.getServiceName() == null) ? call.getServiceMethodName() : call.getServiceName() + '.' + call.getServiceMethodName();
 			Serializer.serialize(output, action); // seems right
 		}
-		if (command instanceof Invoke) {
-			Serializer.serialize(output, Integer.valueOf(command.getTransactionId()));
-			Serializer.serialize(output, command.getConnectionParams());
+		if (invoke instanceof Invoke) {
+			Serializer.serialize(output, Integer.valueOf(invoke.getInvokeId()));
+			Serializer.serialize(output, invoke.getConnectionParams());
 		}
+
 		if (call.getServiceName() == null && "connect".equals(call.getServiceMethodName())) {
 			// response to initial connect, always use AMF0
 			output = new org.red5.io.amf.Output(out);
@@ -778,7 +778,8 @@ public class RTMPProtocolEncoder implements Constants, IEventEncoder {
 				output = new org.red5.io.amf.Output(out);
 			}
 		}
-		if (!isPending && (command instanceof Invoke)) {
+
+		if (!isPending && (invoke instanceof Invoke)) {
 			IPendingServiceCall pendingCall = (IPendingServiceCall) call;
 			if (!call.isSuccess()) {
 				log.debug("Call was not successful");
@@ -809,9 +810,9 @@ public class RTMPProtocolEncoder implements Constants, IEventEncoder {
 				}
 			}
 		}
-		if (command.getData() != null) {
+		if (invoke.getData() != null) {
 			out.setAutoExpand(true);
-			out.put(command.getData());
+			out.put(invoke.getData());
 		}
 	}
 
@@ -951,7 +952,7 @@ public class RTMPProtocolEncoder implements Constants, IEventEncoder {
 		out.setAutoExpand(true);
 		// Unknown byte, always 0?
 		out.put((byte) 0);
-		encodeCommand(out, msg, rtmp);
+		encodeNotifyOrInvoke(out, msg, rtmp);
 		return out;
 	}
 

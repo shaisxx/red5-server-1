@@ -48,9 +48,9 @@ public class DeferredResult {
 	private IPendingServiceCall call;
 
 	/**
-	 * Transaction id
+	 * Invocation id
 	 */
-	private int transactionId;
+	private int invokeId;
 
 	/**
 	 * Results sent flag
@@ -72,10 +72,10 @@ public class DeferredResult {
 			log.warn("The client is no longer connected.");
 			return;
 		}
-		call.setResult(result);
 		Invoke reply = new Invoke();
+		call.setResult(result);
 		reply.setCall(call);
-		reply.setTransactionId(transactionId);
+		reply.setInvokeId(invokeId);
 		channel.write(reply);
 		channel.getConnection().unregisterDeferredResult(this);
 	}
@@ -90,12 +90,12 @@ public class DeferredResult {
 	}
 
 	/**
-	 * Setter for transaction id.
+	 * Setter for invoke Id.
 	 *
-	 * @param id Invocation object identifier
+	 * @param id  Invocation object identifier
 	 */
-	public void setTransactionId(int id) {
-		this.transactionId = id;
+	public void setInvokeId(int id) {
+		this.invokeId = id;
 	}
 
 	/**

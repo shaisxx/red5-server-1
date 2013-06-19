@@ -28,7 +28,6 @@ import org.red5.server.api.service.IPendingServiceCall;
 import org.red5.server.api.service.IPendingServiceCallback;
 import org.red5.server.api.service.IServiceCall;
 import org.red5.server.api.stream.IClientStream;
-import org.red5.server.net.ICommand;
 import org.red5.server.net.rtmp.codec.RTMP;
 import org.red5.server.net.rtmp.event.BytesRead;
 import org.red5.server.net.rtmp.event.ChunkSize;
@@ -57,6 +56,29 @@ public abstract class BaseRTMPHandler implements IRTMPHandler, Constants, Status
 
 	private static Logger log = LoggerFactory.getLogger(BaseRTMPHandler.class);
 
+	// XXX: HACK HACK HACK to support stream ids
+	private static ThreadLocal<Integer> streamLocal = new ThreadLocal<Integer>();
+
+	/**
+	 * Getter for stream ID.
+	 * 
+	 * @return Stream ID
+	 */
+	// XXX: HACK HACK HACK to support stream ids
+	public static int getStreamId() {
+		return streamLocal.get().intValue();
+	}
+
+	/**
+	 * Setter for stream Id.
+	 * 
+	 * @param id
+	 *            Stream id
+	 */
+	private static void setStreamId(int id) {
+		streamLocal.set(id);
+	}
+
 	/** {@inheritDoc} */
 	public void connectionOpened(RTMPConnection conn) {
 		log.trace("connectionOpened - conn: {} state: {}", conn, conn.getState());
@@ -72,12 +94,11 @@ public abstract class BaseRTMPHandler implements IRTMPHandler, Constants, Status
 				final Packet packet = (Packet) in;
 				message = packet.getMessage();
 				final Header header = packet.getHeader();
-				final int streamId = header.getStreamId();
 				final Channel channel = conn.getChannel(header.getChannelId());
-				final IClientStream stream = conn.getStreamById(streamId);
-				log.trace("Message received - stream id: {} channel: {} header: {}", streamId, channel.getId(), header);
-				// set stream id on the connection
-				conn.setStreamId(streamId);
+				final IClientStream stream = conn.getStreamById(header.getStreamId());
+				log.trace("Message received, header: {}", header);
+				// XXX: HACK HACK HACK to support stream ids
+				BaseRTMPHandler.setStreamId(header.getStreamId());
 				// increase number of received messages
 				conn.messageReceived();
 				// set the source of the message
@@ -89,7 +110,7 @@ public abstract class BaseRTMPHandler implements IRTMPHandler, Constants, Status
 						break;
 					case TYPE_INVOKE:
 					case TYPE_FLEX_MESSAGE:
-						onCommand(conn, channel, header, (Invoke) message);
+						onInvoke(conn, channel, header, (Invoke) message);
 						IPendingServiceCall call = ((Invoke) message).getCall();
 						if (message.getHeader().getStreamId() != 0 && call.getServiceName() == null && StreamAction.PUBLISH.equals(call.getServiceMethodName())) {
 							if (stream != null) {
@@ -98,12 +119,12 @@ public abstract class BaseRTMPHandler implements IRTMPHandler, Constants, Status
 							}
 						}
 						break;
-					case TYPE_NOTIFY: // like an invoke, but does not return anything and has a invoke / transaction id of 0
+					case TYPE_NOTIFY: // just like invoke, but does not return
 						if (((Notify) message).getData() != null && stream != null) {
 							// Stream metadata
 							((IEventDispatcher) stream).dispatchEvent(message);
 						} else {
-							onCommand(conn, channel, header, (Notify) message);
+							onInvoke(conn, channel, header, (Notify) message);
 						}
 						break;
 					case TYPE_FLEX_STREAM_SEND:
@@ -205,14 +226,17 @@ public abstract class BaseRTMPHandler implements IRTMPHandler, Constants, Status
 	}
 
 	/**
-	 * Handler for pending call result. Dispatches results to all pending call handlers.
+	 * Handler for pending call result. Dispatches results to all pending call
+	 * handlers.
 	 * 
-	 * @param conn Connection
-	 * @param invoke Pending call result event context
+	 * @param conn
+	 *            Connection
+	 * @param invoke
+	 *            Pending call result event context
 	 */
-	protected void handlePendingCallResult(RTMPConnection conn, Invoke invoke) {
+	protected void handlePendingCallResult(RTMPConnection conn, Notify invoke) {
 		final IServiceCall call = invoke.getCall();
-		final IPendingServiceCall pendingCall = conn.retrievePendingCall(invoke.getTransactionId());
+		final IPendingServiceCall pendingCall = conn.retrievePendingCall(invoke.getInvokeId());
 		if (pendingCall != null) {
 			// The client sent a response to a previously made call.
 			Object[] args = call.getArguments();
@@ -251,14 +275,18 @@ public abstract class BaseRTMPHandler implements IRTMPHandler, Constants, Status
 	protected abstract void onChunkSize(RTMPConnection conn, Channel channel, Header source, ChunkSize chunkSize);
 
 	/**
-	 * Command event handler, which current consists of an Invoke or Notify type object.
+	 * Invocation event handler.
 	 * 
-	 * @param conn Connection
-	 * @param channel Channel
-	 * @param source Header
-	 * @param command event context
+	 * @param conn
+	 *            Connection
+	 * @param channel
+	 *            Channel
+	 * @param source
+	 *            Header
+	 * @param invoke
+	 *            Invocation event context
 	 */
-	protected abstract void onCommand(RTMPConnection conn, Channel channel, Header source, ICommand command);
+	protected abstract void onInvoke(RTMPConnection conn, Channel channel, Header source, Notify invoke);
 
 	/**
 	 * Ping event handler.

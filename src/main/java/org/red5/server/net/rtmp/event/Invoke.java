@@ -18,12 +18,6 @@
 
 package org.red5.server.net.rtmp.event;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
-
 import org.apache.mina.core.buffer.IoBuffer;
 import org.red5.server.api.service.IPendingServiceCall;
 
@@ -37,16 +31,20 @@ public class Invoke extends Notify {
 	/** Constructs a new Invoke. */
     public Invoke() {
 		super();
-		dataType = TYPE_INVOKE;
 	}
- 
+
+	/** {@inheritDoc} */
+    @Override
+	public byte getDataType() {
+		return TYPE_INVOKE;
+	}
+
     /**
      * Create new invocation event with given data
      * @param data        Event data
      */
     public Invoke(IoBuffer data) {
 		super(data);
-		dataType = TYPE_INVOKE;
 	}
 
     /**
@@ -55,18 +53,8 @@ public class Invoke extends Notify {
      */
     public Invoke(IPendingServiceCall call) {
 		super(call);
-		dataType = TYPE_INVOKE;
 	}
 
-	/**
-	 * Setter for transaction id
-	 * 
-	 * @param transactionId the transactionId to set
-	 */
-	public void setTransactionId(int transactionId) {
-		this.transactionId = transactionId;
-	}
-    
 	/** {@inheritDoc} */
     @Override
 	public IPendingServiceCall getCall() {
@@ -77,7 +65,7 @@ public class Invoke extends Notify {
     @Override
 	public String toString() {
 		StringBuilder sb = new StringBuilder();
-		sb.append("Invoke #").append(transactionId).append(": ").append(call);
+		sb.append("Invoke: ").append(call);
 		return sb.toString();
 	}
 
@@ -93,30 +81,4 @@ public class Invoke extends Notify {
 		return super.equals(obj);
 	}
 
-	/**
-     * Duplicate this Invoke message to future injection. Serialize to memory and deserialize, safe way.
-     * 
-     * @return duplicated Invoke event
-     */
-    @Override
-	public Invoke duplicate() throws IOException, ClassNotFoundException {
-		Invoke result = new Invoke();
-		ByteArrayOutputStream baos = new ByteArrayOutputStream();
-		ObjectOutputStream oos = new ObjectOutputStream(baos);		
-		writeExternal(oos);
-		oos.close();
-		
-		byte[] buf = baos.toByteArray();
-		baos.close();
-		
-		ByteArrayInputStream bais = new ByteArrayInputStream(buf);
-		ObjectInputStream ois = new ObjectInputStream(bais);
-		
-		result.readExternal(ois);
-		ois.close();
-		bais.close();
-		
-		return result;
-	}    
-    
 }
