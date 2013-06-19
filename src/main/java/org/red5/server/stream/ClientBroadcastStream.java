@@ -218,10 +218,6 @@ public class ClientBroadcastStream extends AbstractClientStream implements IClie
 		if (recordingListener != null) {
 			recordingListener.clear();
 		}
-		// clear listeners
-		if (!listeners.isEmpty()) {
-			listeners.clear();
-		}
 		// deregister with jmx
 		unregisterJMX();
 	}

@@ -23,19 +23,24 @@ import java.util.Set;
 import org.red5.server.api.persistence.IPersistable;
 import org.red5.server.api.persistence.IPersistenceStore;
 import org.red5.server.api.persistence.PersistenceUtils;
+import org.red5.server.api.scheduling.IScheduledJob;
 import org.red5.server.api.scope.IScope;
 import org.red5.server.api.scope.ScopeType;
 import org.red5.server.api.so.ISharedObject;
 import org.red5.server.api.so.ISharedObjectService;
 import org.red5.server.persistence.RamPersistence;
+import org.red5.server.scheduling.QuartzSchedulingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.InitializingBean;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationContextAware;
 
 /**
  * Shared object service
  */
-public class SharedObjectService implements ISharedObjectService {
+public class SharedObjectService implements ISharedObjectService, ApplicationContextAware, InitializingBean, DisposableBean {
 
 	private Logger log = LoggerFactory.getLogger(SharedObjectService.class);
 
@@ -52,7 +57,12 @@ public class SharedObjectService implements ISharedObjectService {
 	/**
 	 * Service used to provide updates / notifications.
 	 */
-	private static ThreadPoolTaskScheduler scheduler;
+	private static QuartzSchedulingService schedulingService;
+
+	/**
+	 * Spring application context
+	 */
+	private ApplicationContext applicationContext;
 
 	/** 
 	 * Maximum messages to send at once
@@ -65,12 +75,28 @@ public class SharedObjectService implements ISharedObjectService {
 	private String persistenceClassName = "org.red5.server.persistence.RamPersistence";
 
 	/**
-	 * Pushes a task to the scheduler for single execution.
-	 * 
-	 * @param task
+	 * Initialization section.
 	 */
-	public static void submitTask(Runnable task) {
-		scheduler.execute(task);
+	public void afterPropertiesSet() throws Exception {
+		SharedObjectService.schedulingService = (QuartzSchedulingService) applicationContext.getBean("schedulingService");
+	}
+
+	/**
+	 * Pushes a job to the scheduler for single execution.
+	 * 
+	 * @param job
+	 */
+	public static void submitJob(IScheduledJob job) {
+		schedulingService.addScheduledOnceJob(10, job);
+	}
+
+	/**
+	 * Setter for Spring application context
+	 * 
+	 * @param applicationContext Application context
+	 */
+	public void setApplicationContext(ApplicationContext applicationContext) {
+		this.applicationContext = applicationContext;
 	}
 
 	/**
@@ -87,13 +113,6 @@ public class SharedObjectService implements ISharedObjectService {
 	 */
 	public void setPersistenceClassName(String name) {
 		persistenceClassName = name;
-	}
-
-	/**
-	 * @param scheduler the scheduler to set
-	 */
-	public static void setScheduler(ThreadPoolTaskScheduler scheduler) {
-		SharedObjectService.scheduler = scheduler;
 	}
 
 	/**
@@ -183,6 +202,9 @@ public class SharedObjectService implements ISharedObjectService {
 			result = ((ISharedObject) scope.getBasicScope(ScopeType.SHARED_OBJECT, name)).clear();
 		}
 		return result;
+	}
+
+	public void destroy() throws Exception {
 	}
 
 }
