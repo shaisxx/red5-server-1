@@ -281,18 +281,4 @@ public interface IConnection extends ICoreObject, ICastingAttributeStore {
 	 */
 	public void removeListener(IConnectionListener listener);
 
-	/**
-	 * Returns the current stream id.
-	 * 
-	 * @return stream id
-	 */
-	public int getStreamId();
-
-	/**
-	 * Sets the current stream id.
-	 * 
-	 * @param id stream id
-	 */
-	public void setStreamId(int id);
-	
 }

@@ -27,7 +27,12 @@ public class FlexMessage extends Invoke {
 
 	public FlexMessage() {
 		super();
-		dataType = TYPE_FLEX_MESSAGE;
 	}
-	    
+	
+	/** {@inheritDoc} */
+    @Override
+	public byte getDataType() {
+		return TYPE_FLEX_MESSAGE;
+	}
+
 }

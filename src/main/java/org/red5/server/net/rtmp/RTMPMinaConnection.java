@@ -142,7 +142,7 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 	/** {@inheritDoc} */
 	@Override
 	public void handleMessageReceived(Object message) {
-		log.trace("handleMessageReceived - {}", sessionId);
+		log.debug("handleMessageReceived - {}", sessionId);
 		scheduler.execute(new ReceivedMessageTask(ioSession, message));
 	}	
 	
@@ -308,7 +308,7 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 					continue;
 				}
 				try {
-					log.trace("Writing message");
+					log.debug("Writing message");
 					writingMessage(out);
 					ioSession.write(out);
 					break;
@@ -332,7 +332,7 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 					continue;
 				}
 				try {
-					log.trace("Writing raw message");
+					log.debug("Writing raw message");
 					ioSession.write(out);
 					break;
 				} finally {
