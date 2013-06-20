@@ -19,9 +19,9 @@
 package org.red5.server.net.protocol;
 
 /**
- * Represents current state of protocol.
+ * Represents current decode state of the protocol.
  */
-public class ProtocolState {
+public class RTMPDecodeState {
 
     /**
      * Decoding finished successfully state constant.
@@ -108,6 +108,14 @@ public class ProtocolState {
 	 */
 	public boolean canContinueDecoding() {
 		return (decoderState != DECODER_BUFFER);
+	}
+
+	/* (non-Javadoc)
+	 * @see java.lang.Object#toString()
+	 */
+	@Override
+	public String toString() {
+		return "RTMPDecodeState [decoderState=" + decoderState + ", decoderBufferAmount=" + decoderBufferAmount + "]";
 	}
 
 }
