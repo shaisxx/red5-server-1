@@ -19,6 +19,7 @@
 package org.red5.server.net.rtmp.codec;
 
 import java.util.List;
+import java.util.concurrent.Semaphore;
 
 import org.apache.mina.core.buffer.IoBuffer;
 import org.apache.mina.core.session.IoSession;
@@ -26,7 +27,6 @@ import org.apache.mina.filter.codec.ProtocolCodecException;
 import org.apache.mina.filter.codec.ProtocolDecoderAdapter;
 import org.apache.mina.filter.codec.ProtocolDecoderOutput;
 import org.red5.server.api.Red5;
-import org.red5.server.net.protocol.ProtocolState;
 import org.red5.server.net.rtmp.RTMPConnection;
 import org.red5.server.net.rtmp.message.Constants;
 import org.slf4j.Logger;
@@ -52,22 +52,30 @@ public class RTMPMinaProtocolDecoder extends ProtocolDecoderAdapter {
 		}
 		buf.put(in);
 		buf.flip();
-		// look for the connection local, if not set then get from the session and set it to prevent any
-		// decode failures
-		RTMPConnection conn = (RTMPConnection) Red5.getConnectionLocal();
-		if (conn == null) {
-			// get the connection from the session
-			conn = (RTMPConnection) session.getAttribute(RTMPConnection.RTMP_CONNECTION_KEY);
+		// get the connection from the session
+		RTMPConnection conn = (RTMPConnection) session.getAttribute(RTMPConnection.RTMP_CONNECTION_KEY);
+		if (!conn.equals((RTMPConnection) Red5.getConnectionLocal())) {
+			log.debug("Connection local didn't match session");
 			Red5.setConnectionLocal(conn);
 		}
-		// get our state
-		ProtocolState state = (ProtocolState) conn.getState();
-		// construct any objects from the decoded bugger
-		List<?> objects = decoder.decodeBuffer(state, buf);
-		if (objects != null) {
-			for (Object object : objects) {
-				out.write(object);
+		final Semaphore lock = conn.getDecoderLock();
+		try {
+			// acquire the decoder lock
+			log.trace("Decoder lock acquiring.. {}", conn.getId());
+			lock.acquire();
+			log.trace("Decoder lock acquired {}", conn.getId());
+			// construct any objects from the decoded bugger
+			List<?> objects = decoder.decodeBuffer(buf);
+			if (objects != null) {
+				for (Object object : objects) {
+					out.write(object);
+				}
 			}
+		} catch (Exception e) {
+			log.error("Error during decode", e);
+		} finally {
+			log.trace("Decoder lock releasing.. {}", conn.getId());
+			lock.release();
 		}
 	}
 

@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.mina.core.buffer.IoBuffer;
+import org.red5.server.api.Red5;
 import org.red5.server.net.rtmp.RTMPConnection;
 import org.red5.server.net.rtmp.codec.RTMP;
 import org.red5.server.net.rtmp.codec.RTMPProtocolDecoder;
@@ -191,7 +192,7 @@ public abstract class BaseRTMPTConnection extends RTMPConnection {
 		log.trace("Current bytes read at decode: {}", read);
 		buffer.put(data);
 		buffer.flip();
-		return decoder.decodeBuffer(state, buffer);
+		return decoder.decodeBuffer(buffer);
 	}
 
 	/**
@@ -281,7 +282,10 @@ public abstract class BaseRTMPTConnection extends RTMPConnection {
 		} else {
 			IoBuffer data = null;
 			try {
-				data = encoder.encodePacket(state, packet);
+				// set the connection local before attempting to encode
+				Red5.setConnectionLocal(this);
+				// encode the data
+				data = encoder.encodePacket(packet);
 				if (data != null) {
 					// add to pending
 					log.debug("Adding outgoing message packet");
@@ -370,7 +374,6 @@ public abstract class BaseRTMPTConnection extends RTMPConnection {
 
 	public void setEncoder(RTMPProtocolEncoder encoder) {
 		this.encoder = (RTMPTProtocolEncoder) encoder;
-		this.encoder.setConnection(this);
 	}
 
 	/**
