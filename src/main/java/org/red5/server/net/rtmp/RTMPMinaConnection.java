@@ -143,7 +143,7 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 	@Override
 	public void handleMessageReceived(Object message) {
 		log.trace("handleMessageReceived - {}", sessionId);
-		scheduler.execute(new ReceivedMessageTask(ioSession, message));
+		executor.execute(new ReceivedMessageTask(ioSession, message));
 	}
 
 	/**
@@ -305,6 +305,12 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 					lock.acquire();
 				} catch (InterruptedException e) {
 					log.warn("Interrupted while waiting for write lock", e);
+					String exMsg = e.getMessage();
+					// if the exception cause is null break out of here to prevent looping until closed
+					if (exMsg == null || "null".equals(exMsg)) {
+						log.debug("Exception writing to connection: {}", this);
+						break;
+					}
 					continue;
 				}
 				try {

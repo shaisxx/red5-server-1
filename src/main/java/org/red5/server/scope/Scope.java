@@ -22,6 +22,7 @@ import java.beans.ConstructorProperties;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -1452,30 +1453,37 @@ public class Scope extends BasicScope implements IScope, IScopeStatistics, Scope
 		public IBasicScope getBasicScope(ScopeType type, String name) {
 			boolean skipTypeCheck = ScopeType.UNDEFINED.equals(type);
 			if (names.contains(name)) {
+				// use concurrent set for the get
+				IBasicScope[] scopes = new IBasicScope[names.size()];
 				log.trace("Permits at getBasicScope: {} queued: {}", internalLock.availablePermits(), internalLock.hasQueuedThreads());
 				try {
 					internalLock.acquire();
-					log.debug("Child scopes (key set): {}", this.keySet());
-					if (skipTypeCheck) {
-						for (IBasicScope child : keySet()) {
-							if (name.equals(child.getName())) {
-								log.debug("Returning basic scope: {}", child);
-								return child;
-							}
-						}
-					} else {
-						for (IBasicScope child : keySet()) {
-							if (child.getType().equals(type) && name.equals(child.getName())) {
-								log.debug("Returning basic scope: {}", child);
-								return child;
-							}
-						}
-					}									
-				} catch (InterruptedException e) {
-					log.warn("Exception aquiring lock for scope set", e);
+					// copy into concurrent set
+					scopes = (IBasicScope[]) keySet().toArray(scopes);
+				} catch (Exception e) {
+					log.warn("Exception acquiring lock to get scope - name: {} type: {}", name, type, e);
+					if (log.isDebugEnabled()) {
+						log.debug("Current names: {}", Arrays.toString(names.toArray()));
+						log.debug("Child scopes (key set): {}", this.keySet());
+					}
 				} finally {
 					internalLock.release();
 				}
+				if (skipTypeCheck) {
+					for (IBasicScope child : scopes) {
+						if (name.equals(child.getName())) {
+							log.debug("Returning basic scope: {}", child);
+							return child;
+						}
+					}
+				} else {
+					for (IBasicScope child : scopes) {
+						if (child.getType().equals(type) && name.equals(child.getName())) {
+							log.debug("Returning basic scope: {}", child);
+							return child;
+						}
+					}
+				}									
 			}
 			return null;
 		}
