@@ -28,6 +28,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
@@ -64,12 +65,12 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 	/**
 	 * MINA I/O session, connection between two end points
 	 */
-	private volatile IoSession ioSession;
+	private IoSession ioSession;
 
 	/**
 	 * MBean object name used for de/registration purposes.
 	 */
-	private volatile ObjectName oName;
+	private ObjectName oName;
 
 	protected int defaultServerBandwidth = 10000000;
 
@@ -81,11 +82,6 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 	@ConstructorProperties(value = { "persistent" })
 	public RTMPMinaConnection() {
 		super(PERSISTENT);
-	}
-
-	@Override
-	public void open() {
-		super.open();
 	}
 
 	@SuppressWarnings("cast")
@@ -120,13 +116,18 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 		super.close();
 		if (ioSession != null) {
 			// accept no further incoming data
-			ioSession.suspendRead();
+			//ioSession.suspendRead();
 			// close now, no flushing, no waiting
-			final CloseFuture future = ioSession.close(true);
+			final CloseFuture future = ioSession.close(false);
 			IoFutureListener<CloseFuture> listener = new IoFutureListener<CloseFuture>() {
 				public void operationComplete(CloseFuture future) {
 					if (future.isClosed()) {
 						log.debug("Connection is closed");
+						log.trace("Session id - local: {} session: {}", sessionId, (String) ioSession.removeAttribute(RTMPConnection.RTMP_SESSION_ID));
+						RTMPMinaConnection conn = (RTMPMinaConnection) RTMPConnManager.getInstance().getConnectionBySessionId(sessionId);
+						if (conn != null) {
+							handler.connectionClosed(conn);
+						}
 					} else {
 						log.debug("Connection is not yet closed");
 					}
@@ -134,9 +135,9 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 				}
 			};
 			future.addListener(listener);
-			//de-register with JMX
-			unregisterJMX();
 		}
+		//de-register with JMX
+		unregisterJMX();
 	}
 
 	/** {@inheritDoc} */
@@ -204,21 +205,21 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 	@Override
 	public void setExecutor(ThreadPoolTaskExecutor executor) {
 		this.executor = executor;
-		this.executor.setRejectedExecutionHandler(new RejectedExecutionHandler(){
+		this.executor.setRejectedExecutionHandler(new RejectedExecutionHandler() {
 
 			@Override
 			public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
-				log.debug("Execution rejected");
-				// ensure the connection is not closing and if it is drop the runnable
-				if (closed || state.getState() != RTMP.STATE_CONNECTED) {
-					log.debug("Dropping runnable due to disconnection, session id: {}", sessionId);
-				}
+				log.debug("Execution rejected on {} - {}", getSessionId(), state.states[getStateCode()]);
 				log.debug("Lock permits - decode: {} encode: {}", decoderLock.availablePermits(), encoderLock.availablePermits());
+				// ensure the connection is not closing and if it is drop the runnable
+				if (state.getState() == RTMP.STATE_CONNECTED) {
+					onInactive();
+				}
 			}
-			
+
 		});
-	}	
-	
+	}
+
 	/**
 	 * @return the bandwidthDetection
 	 */
@@ -292,8 +293,18 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 
 	/** {@inheritDoc} */
 	@Override
+	public boolean isIdle() {
+		if (ioSession != null) {
+			log.debug("Connection idle - read: {} write: {}", ioSession.isReaderIdle(), ioSession.isWriterIdle());
+			return super.isIdle() && ioSession.isBothIdle();
+		}
+		return super.isIdle();
+	}
+
+	/** {@inheritDoc} */
+	@Override
 	protected void onInactive() {
-		this.close();
+		close();
 	}
 
 	/**
@@ -314,6 +325,7 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 		remoteAddresses.add(remoteAddress);
 		remoteAddresses = Collections.unmodifiableList(remoteAddresses);
 		this.ioSession = protocolSession;
+		log.trace("setIoSession conn: {}", this);
 	}
 
 	/** {@inheritDoc} */
@@ -321,10 +333,17 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 	public void write(Packet out) {
 		if (ioSession != null) {
 			final Semaphore lock = getLock();
-			log.trace("Write lock wait count: {}", lock.getQueueLength());
-			while (!closed && !ioSession.isWriteSuspended()) {
+			log.trace("Write lock wait count: {} closed: {}", lock.getQueueLength(), closed);
+			while (!closed) {
+				boolean acquired = false;
 				try {
-					lock.acquire();
+					acquired = lock.tryAcquire(10, TimeUnit.MILLISECONDS);
+					if (acquired) {
+						log.trace("Writing message");
+						writingMessage(out);
+						ioSession.write(out);
+						break;
+					}
 				} catch (InterruptedException e) {
 					log.warn("Interrupted while waiting for write lock", e);
 					String exMsg = e.getMessage();
@@ -333,15 +352,10 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 						log.debug("Exception writing to connection: {}", this);
 						break;
 					}
-					continue;
-				}
-				try {
-					log.trace("Writing message");
-					writingMessage(out);
-					ioSession.write(out);
-					break;
 				} finally {
-					lock.release();
+					if (acquired) {
+						lock.release();
+					}
 				}
 			}
 		}
@@ -352,19 +366,21 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 	public void writeRaw(IoBuffer out) {
 		if (ioSession != null) {
 			final Semaphore lock = getLock();
-			while (!closed && !ioSession.isWriteSuspended()) {
+			while (!closed) {
+				boolean acquired = false;
 				try {
-					lock.acquire();
+					acquired = lock.tryAcquire(10, TimeUnit.MILLISECONDS);
+					if (acquired) {
+						log.trace("Writing raw message");
+						ioSession.write(out);
+						break;
+					}
 				} catch (InterruptedException e) {
 					log.warn("Interrupted while waiting for write lock", e);
-					continue;
-				}
-				try {
-					log.trace("Writing raw message");
-					ioSession.write(out);
-					break;
 				} finally {
-					lock.release();
+					if (acquired) {
+						lock.release();
+					}
 				}
 			}
 		}
@@ -421,8 +437,10 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 		}
 
 		public void run() {
+			log.trace("Session id - local: {} session: {}", sessionId, (String) ioSession.getAttribute(RTMPConnection.RTMP_SESSION_ID));
+			RTMPConnection conn = (RTMPConnection) RTMPConnManager.getInstance().getConnectionBySessionId(sessionId);			
 			// set connection to thread local
-			Red5.setConnectionLocal((RTMPConnection) ioSession.getAttribute(RTMPConnection.RTMP_CONNECTION_KEY));
+			Red5.setConnectionLocal(conn);
 			try {
 				// pass message to the handler
 				handler.messageReceived(message, ioSession);

@@ -21,13 +21,16 @@ package org.red5.server.net.rtmp;
 import java.beans.ConstructorProperties;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -84,7 +87,9 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 
 	private static Logger log = LoggerFactory.getLogger(RTMPConnection.class);
 
-	public static final String RTMP_CONNECTION_KEY = "rtmp.conn";
+	//public static final String RTMP_CONNECTION_KEY = "rtmp.conn";
+
+	public static final String RTMP_SESSION_ID = "rtmp.sessionid";
 
 	public static final String RTMP_HANDSHAKE = "rtmp.handshake";
 
@@ -282,6 +287,7 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	}
 
 	public void setStateCode(byte code) {
+		log.trace("setStateCode: {} - {}", code, state.states[code]);
 		state.setState(code);
 	}
 
@@ -320,7 +326,10 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	 * Opens the connection.
 	 */
 	public void open() {
-		startWaitForHandshake();
+		if (log.isTraceEnabled()) {
+			// dump memory stats
+			log.trace("Memory at open - free: {}K total: {}K", Runtime.getRuntime().freeMemory() / 1024, Runtime.getRuntime().totalMemory() / 1024);
+		}
 	}
 
 	@Override
@@ -345,7 +354,7 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	/**
 	 * Start waiting for a valid handshake.
 	 */
-	protected void startWaitForHandshake() {
+	public void startWaitForHandshake() {
 		log.debug("startWaitForHandshake - {}", sessionId);
 		// start the handshake waiter
 		scheduler.execute(new WaitForHandshakeTask());
@@ -501,8 +510,20 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	}
 
 	/**
-	 * Creates output stream object from stream id. Output stream consists of
-	 * audio, data and video channels.
+	 * Returns whether or not the connection has been idle for a maximum period.
+	 * 
+	 * @return true if max idle period has been exceeded, false otherwise
+	 */
+	public boolean isIdle() {
+		long lastPingTime = lastPingSent.get();
+		long lastPongTime = lastPongReceived.get();
+		boolean idle = (lastPongTime > 0 && (lastPingTime - lastPongTime > maxInactivity));
+		log.trace("Connection {} idle", idle ? "is" : "is not");
+		return idle;
+	}
+
+	/**
+	 * Creates output stream object from stream id. Output stream consists of audio, data and video channels.
 	 * 
 	 * @see org.red5.server.stream.OutputStream
 	 * 
@@ -661,7 +682,15 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		log.debug("close: {}", sessionId);
 		// update our state
 		if (state != null) {
-			state.setState(RTMP.STATE_DISCONNECTING);
+			final byte s = getStateCode();
+			switch (s) {
+				case RTMP.STATE_DISCONNECTED:
+					log.debug("Already disconnected");
+					return;
+				default:
+					log.debug("State: {}", state.states[s]);
+					state.setState(RTMP.STATE_DISCONNECTING);
+			}
 		}
 		Red5.setConnectionLocal(this);
 		IStreamService streamService = (IStreamService) ScopeUtils.getScopeService(scope, IStreamService.class, StreamService.class);
@@ -708,20 +737,47 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		} else {
 			log.trace("StreamBuffers collection was null");
 		}
-		// clear thread local reference
-		Red5.setConnectionLocal(null);
 		if (scheduler != null) {
 			log.debug("Shutting down scheduler");
-			scheduler.shutdown();
-			scheduler = null;
+			try {
+				ScheduledExecutorService exe = scheduler.getScheduledExecutor();
+				List<Runnable> runables = exe.shutdownNow();
+				log.debug("Scheduler - shutdown: {} queued: {}", exe.isShutdown(), runables.size());
+				scheduler.shutdown();
+				scheduler = null;
+			} catch (NullPointerException e) {
+				// this can happen in a multithreaded env, where close has been called from more than one spot
+				if (log.isDebugEnabled()) {
+					log.warn("Exception during scheduler shutdown", e);
+				}
+			} catch (Exception e) {
+				log.warn("Exception during scheduler shutdown", e);
+			}
 		}
 		if (executor != null) {
 			log.debug("Shutting down executor");
-			executor.shutdown();
+			try {
+				ThreadPoolExecutor exe = executor.getThreadPoolExecutor();
+				List<Runnable> runables = exe.shutdownNow();
+				log.debug("Executor - shutdown: {} queued: {}", exe.isShutdown(), runables.size());
+				executor.shutdown();
+				executor = null;
+			} catch (NullPointerException e) {
+				// this can happen in a multithreaded env, where close has been called from more than one spot
+				if (log.isDebugEnabled()) {
+					log.warn("Exception during executor shutdown", e);
+				}
+			} catch (Exception e) {
+				log.warn("Exception during executor shutdown", e);
+			}
 		}
 		// drain permits
 		decoderLock.drainPermits();
 		encoderLock.drainPermits();
+		if (log.isTraceEnabled()) {
+			// dump memory stats
+			log.trace("Memory at close - free: {}K total: {}K", Runtime.getRuntime().freeMemory() / 1024, Runtime.getRuntime().totalMemory() / 1024);
+		}
 	}
 
 	/**
@@ -1082,7 +1138,7 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	/** {@inheritDoc} */
 	public void ping() {
 		long newPingTime = System.currentTimeMillis();
-		log.debug("Pinging client with id {} at {}, last ping sent at {}", new Object[] { getId(), newPingTime, lastPingSent.get() });
+		log.debug("Pinging {} at {}, last ping sent at {}", new Object[] { getSessionId(), newPingTime, lastPingSent.get() });
 		if (lastPingSent.get() == 0) {
 			lastPongReceived.set(newPingTime);
 		}
@@ -1259,51 +1315,60 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 		private volatile long lastBytesReadTime = 0;
 
 		public void run() {
-			// ensure the job is not already running
-			if (running.compareAndSet(false, true)) {
-				log.trace("Running keep-alive");
-				try {
-					// get now
-					long now = System.currentTimeMillis();
-					// get the current bytes read count on the connection
-					long currentReadBytes = getReadBytes();
-					// get our last bytes read count
-					long previousReadBytes = lastBytesRead.get();
-					log.trace("Time now: {} current read count: {} last read count: {}", new Object[] { now, currentReadBytes, previousReadBytes });
-					if (currentReadBytes > previousReadBytes) {
-						log.trace("Client is still alive, no ping needed");
-						// client has sent data since last check and thus is not dead. No need to ping
-						if (lastBytesRead.compareAndSet(previousReadBytes, currentReadBytes)) {
-							// update the timestamp to match our update
-							lastBytesReadTime = now;
-						}
-						// update last ping time to prevent overly active pinging
-						lastPingSent.set(now);
-					} else if (getPendingMessages() > 0) {
-						// client may not have updated bytes yet, but may have received messages waiting, no need to drop them if processing hasn't
-						// caught up yet
-						log.trace("Reader is not idle, possible flood. Pending write messages: {}", getPendingMessages());
-						// update last ping time to prevent overly active pinging
-						lastPingSent.set(now);
-					} else {
-						// client didn't send response to ping command and didn't sent data for too long, disconnect
-						long lastPingTime = lastPingSent.get();
-						long lastPongTime = lastPongReceived.get();
-						if (lastPongTime > 0 && (lastPingTime - lastPongTime > maxInactivity) && !(now - lastBytesReadTime < maxInactivity)) {
-							log.warn("Closing {}, with id {}, due to too much inactivity ({} ms), last ping sent {} ms ago", new Object[] { RTMPConnection.this, getId(),
-									(lastPingTime - lastPongTime), (now - lastPingTime) });
-							// the following line deals with a very common support request
-							log.warn("This often happens if YOUR Red5 application generated an exception on start-up. Check earlier in the log for that exception first!");
+			// we dont ping until in connected state
+			if (state.getState() == RTMP.STATE_CONNECTED) {
+				// ensure the job is not already running
+				if (running.compareAndSet(false, true)) {
+					log.trace("Running keep-alive for {}", getSessionId());
+					try {
+						// first check connected
+						if (isConnected()) {
+							// get now
+							long now = System.currentTimeMillis();
+							// get the current bytes read count on the connection
+							long currentReadBytes = getReadBytes();
+							// get our last bytes read count
+							long previousReadBytes = lastBytesRead.get();
+							log.trace("Time now: {} current read count: {} last read count: {}", new Object[] { now, currentReadBytes, previousReadBytes });
+							if (currentReadBytes > previousReadBytes) {
+								log.trace("Client is still alive, no ping needed");
+								// client has sent data since last check and thus is not dead. No need to ping
+								if (lastBytesRead.compareAndSet(previousReadBytes, currentReadBytes)) {
+									// update the timestamp to match our update
+									lastBytesReadTime = now;
+								}
+								// check idle
+								if (isIdle()) {
+									onInactive();
+								}
+							} else {
+								// send ping command to client to trigger sending of data
+								ping();
+								// sleep for 1 second
+								Thread.sleep(1000L);
+								// client didn't send response to ping command and didn't sent data for too long, disconnect
+								long lastPingTime = lastPingSent.get();
+								long lastPongTime = lastPongReceived.get();
+								if (lastPongTime > 0 && (lastPingTime - lastPongTime > maxInactivity) && !(now - lastBytesReadTime < maxInactivity)) {
+									log.warn("Closing {}, due to too much inactivity ({} ms), last ping sent {} ms ago", new Object[] { getSessionId(),
+											(lastPingTime - lastPongTime), (now - lastPingTime) });
+									// the following line deals with a very common support request
+									log.warn("This often happens if YOUR Red5 application generated an exception on start-up. Check earlier in the log for that exception first!");
+									onInactive();
+								}
+							}
+						} else {
+							log.debug("No longer connected, clean up connection. Connection state: {}", state.states[state.getState()]);
 							onInactive();
 						}
-						// send ping command to client to trigger sending of data
-						ping();
+					} catch (InterruptedException e) {
+						log.warn("Keep alive was interrupted for {}", getSessionId() + " - " + state.states[getStateCode()], e);
+					} catch (Exception e) {
+						log.warn("Exception in keepalive for {}", getSessionId(), e);
+					} finally {
+						// reset running flag
+						running.compareAndSet(true, false);
 					}
-				} catch (Exception e) {
-					log.error("Error executing keepalive code: " + e.getMessage(), e);
-				} finally {
-					// reset running flag
-					running.compareAndSet(true, false);
 				}
 			}
 		}
@@ -1315,13 +1380,13 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
 	private class WaitForHandshakeTask implements Runnable {
 
 		public void run() {
+			log.trace("Running handshake-wait for {}", getSessionId());
 			try {
 				Thread.sleep(maxHandshakeTimeout);
 				// check for connected state before disconnecting
 				if (state.getState() != RTMP.STATE_CONNECTED) {
-
 					// Client didn't send a valid handshake, disconnect
-					log.warn("Closing {}, with id {} due to long handshake", RTMPConnection.this, getId());
+					log.warn("Closing {}, due to long handshake. State: {}", getSessionId(), state.states[getStateCode()]);
 					onInactive();
 				}
 			} catch (InterruptedException e) {

@@ -65,7 +65,9 @@ public abstract class BaseRTMPHandler implements IRTMPHandler, Constants, Status
 
 	/** {@inheritDoc} */
 	public void messageReceived(Object in, IoSession session) throws Exception {
-		RTMPConnection conn = (RTMPConnection) session.getAttribute(RTMPConnection.RTMP_CONNECTION_KEY);
+		String sessionId = (String) session.getAttribute(RTMPConnection.RTMP_SESSION_ID);
+		log.trace("Session id: {}", sessionId);
+		RTMPConnection conn = (RTMPConnection) RTMPConnManager.getInstance().getConnectionBySessionId(sessionId);
 		if (conn != null) {
 			IRTMPEvent message = null;
 			try {
@@ -155,7 +157,7 @@ public abstract class BaseRTMPHandler implements IRTMPHandler, Constants, Status
 			// before buffering etc..
 			if (message != null) {
 				message.release();
-			}			
+			}
 		} else {
 			log.info("Connection was null in session - connected: {} closing: {}", session.isConnected(), session.isClosing());
 		}
@@ -173,12 +175,19 @@ public abstract class BaseRTMPHandler implements IRTMPHandler, Constants, Status
 
 	/** {@inheritDoc} */
 	public void connectionClosed(RTMPConnection conn) {
-		// set as disconnected
-		conn.setStateCode(RTMP.STATE_DISCONNECTED);
-		// inform any callbacks for pending calls that the connection is closed
-		conn.sendPendingServiceCallsCloseError();
-		// close the connection
-		conn.close();
+		if (conn.getStateCode() != RTMP.STATE_DISCONNECTED) {
+			// inform any callbacks for pending calls that the connection is closed
+			conn.sendPendingServiceCallsCloseError();
+			// close the connection
+			if (conn.getStateCode() != RTMP.STATE_DISCONNECTING) {
+				conn.close();
+			}
+			// set as disconnected
+			conn.setStateCode(RTMP.STATE_DISCONNECTED);
+			// remove from the manager
+			RTMPConnManager.getInstance().removeConnection(conn.getSessionId());
+		}
+		log.trace("connectionClosed: {}", conn);
 	}
 
 	/**
