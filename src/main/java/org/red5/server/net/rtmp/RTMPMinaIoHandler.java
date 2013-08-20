@@ -19,12 +19,16 @@
 package org.red5.server.net.rtmp;
 
 import org.apache.mina.core.buffer.IoBuffer;
+import org.apache.mina.core.future.CloseFuture;
+import org.apache.mina.core.future.IoFutureListener;
 import org.apache.mina.core.service.IoHandlerAdapter;
+import org.apache.mina.core.service.IoProcessor;
 import org.apache.mina.core.session.IoSession;
+import org.apache.mina.core.write.WriteRequestQueue;
 import org.apache.mina.filter.codec.ProtocolCodecFactory;
 import org.apache.mina.filter.codec.ProtocolCodecFilter;
-import org.apache.mina.transport.socket.nio.NioSession;
 import org.red5.server.net.rtmp.codec.RTMP;
+import org.red5.server.net.rtmp.message.Packet;
 import org.red5.server.net.rtmpe.RTMPEIoFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,9 +70,8 @@ public class RTMPMinaIoHandler extends IoHandlerAdapter {
 	/** {@inheritDoc} */
 	@Override
 	public void sessionOpened(IoSession session) throws Exception {
-		log.info("Session opened: {}", session.getId());
 		String sessionId = (String) session.getAttribute(RTMPConnection.RTMP_SESSION_ID);
-		log.trace("Session id: {}", sessionId);
+		log.info("Session opened: {} id: {}", session.getId(), sessionId);
 		RTMPMinaConnection conn = (RTMPMinaConnection) RTMPConnManager.getInstance().getConnectionBySessionId(sessionId);
 		handler.connectionOpened(conn);
 	}
@@ -76,13 +79,12 @@ public class RTMPMinaIoHandler extends IoHandlerAdapter {
 	/** {@inheritDoc} */
 	@Override
 	public void sessionClosed(IoSession session) throws Exception {
-		log.info("Session closed: {}", session.getId());
+		String sessionId = (String) session.getAttribute(RTMPConnection.RTMP_SESSION_ID);
+		log.info("Session closed: {} id: {}", session.getId(), sessionId);
 		if (log.isTraceEnabled()) {
 			log.trace("Session attributes: {}", session.getAttributeKeys());
 		}
-		String sessionId = (String) session.getAttribute(RTMPConnection.RTMP_SESSION_ID);
 		if (sessionId != null) {
-			log.trace("Session id: {}", sessionId);
 			RTMPMinaConnection conn = (RTMPMinaConnection) RTMPConnManager.getInstance().getConnectionBySessionId(sessionId);
 			if (conn != null) {
 				// fire-off closed event
@@ -96,14 +98,11 @@ public class RTMPMinaIoHandler extends IoHandlerAdapter {
 					session.removeAttribute(RTMPConnection.RTMPE_CIPHER_IN);
 					session.removeAttribute(RTMPConnection.RTMPE_CIPHER_OUT);
 				}
-				//session.suspendWrite();
 			} else {
-				log.warn("Connection was null in session");
-				forceClose(session);
+				log.warn("Connection was not found for {}", sessionId);
 			}
 		} else {
 			log.debug("Connections session id was null in session, may already be closed");
-			forceClose(session);
 		}
 	}
 
@@ -150,37 +149,38 @@ public class RTMPMinaIoHandler extends IoHandlerAdapter {
 	/** {@inheritDoc} */
 	@Override
 	public void messageReceived(IoSession session, Object message) throws Exception {
-		log.trace("messageReceived");
+		String sessionId = (String) session.getAttribute(RTMPConnection.RTMP_SESSION_ID);
+		log.trace("Message received on session: {} id: {}", session.getId(), sessionId);
 		if (message instanceof IoBuffer) {
 			rawBufferRecieved((IoBuffer) message, session);
 		} else {
-			String sessionId = (String) session.getAttribute(RTMPConnection.RTMP_SESSION_ID);
 			log.trace("Session id: {}", sessionId);
 			RTMPMinaConnection conn = (RTMPMinaConnection) RTMPConnManager.getInstance().getConnectionBySessionId(sessionId);
-			conn.handleMessageReceived(message);
+			if (conn != null) {
+				conn.handleMessageReceived((Packet) message);
+			} else {
+				log.warn("Connection was not found for {}", sessionId);
+				forceClose(session);
+			}
 		}
 	}
 
 	/** {@inheritDoc} */
 	@Override
 	public void messageSent(IoSession session, Object message) throws Exception {
-		log.trace("messageSent");
 		String sessionId = (String) session.getAttribute(RTMPConnection.RTMP_SESSION_ID);
-		log.trace("Session id: {}", sessionId);
+		log.trace("Message sent on session: {} id: {}", session.getId(), sessionId);
 		RTMPMinaConnection conn = (RTMPMinaConnection) RTMPConnManager.getInstance().getConnectionBySessionId(sessionId);
-		handler.messageSent(conn, message);
+		if (message instanceof Packet) {
+			handler.messageSent(conn, (Packet) message);
+		}
 	}
 
 	/** {@inheritDoc} */
 	@Override
 	public void exceptionCaught(IoSession session, Throwable cause) throws Exception {
 		log.warn("Exception caught on session: {}", session.getId(), cause.getCause());
-		if (session.containsAttribute(RTMPConnection.RTMP_SESSION_ID)) {
-			log.debug("Forcing call to sessionClosed");
-			sessionClosed(session);
-		} else {
-			forceClose(session);
-		}
+		forceClose(session);
 	}
 
 	/**
@@ -188,14 +188,47 @@ public class RTMPMinaIoHandler extends IoHandlerAdapter {
 	 * 
 	 * @param session
 	 */
-	private void forceClose(IoSession session) {
-		log.debug("Forcing close on session: {}", session.getId());
-		if (session instanceof NioSession) {
-			NioSession nio = (NioSession) session;
-			log.trace("Removing session from processor");
-			nio.getProcessor().remove(nio);
+	private void forceClose(final IoSession session) {
+		log.warn("Force close - session: {}", session.getId());
+		if (session.containsAttribute("FORCED_CLOSE")) {
+			log.warn("Close already forced on this session: {}", session.getId());
 		} else {
-			log.debug("Session was not of NioSession type: {}", session.getClass().getName());
+			// set flag
+			session.setAttribute("FORCED_CLOSE", Boolean.TRUE);
+			// clean up
+			final String sessionId = (String) session.getAttribute(RTMPConnection.RTMP_SESSION_ID);
+			log.debug("Forcing close on session: {} id: {}", session.getId(), sessionId);
+			log.debug("Session closing: {}", session.isClosing());
+			session.suspendRead();
+			final WriteRequestQueue writeQueue = session.getWriteRequestQueue();
+			if (writeQueue != null && !writeQueue.isEmpty(session)) {
+				log.debug("Clearing write queue");
+				writeQueue.clear(session);
+			}
+			// force close the session
+			final CloseFuture future = session.close(false);
+			IoFutureListener<CloseFuture> listener = new IoFutureListener<CloseFuture>() {
+				@SuppressWarnings({ "unchecked", "rawtypes" })
+				public void operationComplete(CloseFuture future) {
+					// now connection should be closed
+					log.debug("Close operation completed {}: {}", sessionId, future.isClosed());
+					future.removeListener(this);
+					for (Object key : session.getAttributeKeys()) {
+						Object obj = session.getAttribute(key);
+						if (obj instanceof IoProcessor) {
+							log.debug("Flushing session in processor");
+							((IoProcessor) obj).flush(session);
+							log.debug("Removing session from processor");
+							((IoProcessor) obj).remove(session);
+						} else if (obj instanceof IoBuffer) {
+							log.debug("Clearing session buffer");
+							((IoBuffer) obj).clear();
+							((IoBuffer) obj).free();							
+						}
+					}
+				}
+			};
+			future.addListener(listener);
 		}
 	}
 

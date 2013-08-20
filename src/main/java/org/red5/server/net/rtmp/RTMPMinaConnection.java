@@ -24,7 +24,6 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -139,12 +138,12 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 
 	/** {@inheritDoc} */
 	@Override
-	public void handleMessageReceived(Object message) {
+	public void handleMessageReceived(Packet message) {
 		log.trace("handleMessageReceived - {}", sessionId);
 		try {
 			executor.execute(new ReceivedMessageTask(sessionId, message, handler));
-		} catch (RejectedExecutionException e) {
-			log.warn("Incoming message handling failed", e);
+		} catch (Exception e) {
+			log.warn("Incoming message handling failed on {}", getSessionId(), e);
 			if (log.isDebugEnabled()) {
 				log.debug("Execution rejected on {} - {}", getSessionId(), state.states[getStateCode()]);
 				log.debug("Lock permits - decode: {} encode: {}", decoderLock.availablePermits(), encoderLock.availablePermits());
@@ -325,8 +324,8 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 	public void write(Packet out) {
 		if (ioSession != null) {
 			final Semaphore lock = getLock();
-			log.trace("Write lock wait count: {} closed: {}", lock.getQueueLength(), closed);
-			while (!closed) {
+			log.trace("Write lock wait count: {} closed: {}", lock.getQueueLength(), isClosed());
+			while (!isClosed()) {
 				boolean acquired = false;
 				try {
 					acquired = lock.tryAcquire(10, TimeUnit.MILLISECONDS);
@@ -358,7 +357,7 @@ public class RTMPMinaConnection extends RTMPConnection implements RTMPMinaConnec
 	public void writeRaw(IoBuffer out) {
 		if (ioSession != null) {
 			final Semaphore lock = getLock();
-			while (!closed) {
+			while (!isClosed()) {
 				boolean acquired = false;
 				try {
 					acquired = lock.tryAcquire(10, TimeUnit.MILLISECONDS);
